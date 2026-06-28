@@ -7,7 +7,7 @@ import {
   enableTunnel, enableTailscale,
   isTunnelManuallyDisabled, isTunnelReconnecting, isTailscaleReconnecting,
   getTunnelService, getTailscaleService, setTunnelUnexpectedExitCallback,
-  killCloudflared, isCloudflaredRunning, ensureCloudflared,
+  killCloudflared, isCloudflaredRunning,
   isTailscaleRunning, isTailscaleRunningStrict, isDaemonAlive, startFunnel,
   checkInternet,
   RESTART_COOLDOWN_MS, NETWORK_SETTLE_MS,
@@ -76,7 +76,11 @@ export async function initializeApp() {
       g.signalHandlersRegistered = true;
     }
 
-    ensureCloudflared().catch(() => {});
+    // [hardened fork] Removed unconditional ensureCloudflared() boot-time download.
+    // Upstream fetches+executes the cloudflared binary from GitHub at every startup,
+    // regardless of whether a tunnel is enabled (default off). The tunnel feature, if
+    // ever enabled, still ensures the binary on-demand inside the tunnel-start path
+    // (src/lib/tunnel/cloudflare/cloudflared.js). See docs/SECURITY-REVIEW.md (finding 4).
 
     // Sync mitmAlias DB → JSON cache so standalone MITM server can read it
     syncMitmAliasCache().catch(() => {});
