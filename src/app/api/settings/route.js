@@ -43,6 +43,11 @@ export async function PATCH(request) {
     // Strip protected secrets before any internal handling sets them
     for (const key of PROTECTED_SETTING_KEYS) delete body[key];
 
+    // requireLogin is immutable: dashboard auth is always on for public deployments.
+    if (Object.prototype.hasOwnProperty.call(body, "requireLogin") && body.requireLogin !== true) {
+      return NextResponse.json({ error: "requireLogin is locked to true" }, { status: 400 });
+    }
+
     // If updating password, hash it
     if (body.newPassword) {
       const settings = await getSettings();
