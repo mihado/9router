@@ -410,14 +410,6 @@ async function updateSettings(data) {
   return makeRequest("PATCH", "/api/settings", data);
 }
 
-/**
- * Reset dashboard password to default (clears stored hash server-side)
- * @returns {Promise<Object>} { success }
- */
-async function resetPassword() {
-  return makeRequest("POST", "/api/auth/reset-password");
-}
-
 // ============================================================================
 // MODELS API
 // ============================================================================
@@ -463,32 +455,12 @@ async function validateProviderNode(data) {
 }
 
 // ============================================================================
-// TUNNEL API
+// TUNNEL removed — stub. All tunnel endpoints were deleted in the hardened fork.
 // ============================================================================
 
-/**
- * Get tunnel status
- * @returns {Promise<Object>} { success, data: { enabled, tunnelUrl, shortId, running } }
- */
-async function getTunnelStatus() {
-  return makeRequest("GET", "/api/tunnel/status");
-}
-
-/**
- * Enable tunnel
- * @returns {Promise<Object>} { success, data: { tunnelUrl, shortId } }
- */
-async function enableTunnel() {
-  return makeRequest("POST", "/api/tunnel/enable");
-}
-
-/**
- * Disable tunnel
- * @returns {Promise<Object>} { success, data: { success } }
- */
-async function disableTunnel() {
-  return makeRequest("POST", "/api/tunnel/disable");
-}
+async function getTunnelStatus() { return { success: true, data: { enabled: false, tunnelUrl: "", shortId: "", running: false, publicUrl: "" } }; }
+async function enableTunnel() { return { success: false, error: "Tunnel feature removed in hardened fork." }; }
+async function disableTunnel() { return { success: true, data: {} }; }
 
 // ============================================================================
 // EXPORTS
@@ -536,7 +508,6 @@ module.exports = {
   // Settings
   getSettings,
   updateSettings,
-  resetPassword,
   
   // Tunnel
   getTunnelStatus,
