@@ -191,54 +191,15 @@ function killByPidFile(pidFile) {
   } catch { }
 }
 
-// Kill tunnel processes (cloudflared/tailscale) by their PID files
-function killTunnelByPidFile() {
-  const tunnelDir = path.join(getAppDataDir(), "tunnel");
-  killByPidFile(path.join(tunnelDir, "cloudflared.pid"));
-  killByPidFile(path.join(tunnelDir, "tailscale.pid"));
-}
-
-// Kill cloudflared whose --url targets this app's port (covers stale PID file case)
-function killCloudflaredByAppPort(appPort) {
-  if (!appPort) return [];
-  const portMatchers = [`localhost:${appPort}`, `127.0.0.1:${appPort}`];
-  const pids = [];
-  try {
-    if (process.platform === "win32") {
-      const psCmd = `powershell -NonInteractive -WindowStyle Hidden -Command "Get-WmiObject Win32_Process -Filter 'Name=\\"cloudflared.exe\\"' | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"`;
-      const output = execSync(psCmd, { encoding: "utf8", windowsHide: true, timeout: 5000 });
-      const lines = output.split("\n").slice(1).filter(l => l.trim());
-      lines.forEach(line => {
-        if (portMatchers.some(m => line.includes(m))) {
-          const match = line.match(/^"(\d+)"/);
-          if (match && match[1]) pids.push(match[1]);
-        }
-      });
-    } else {
-      const output = execSync("ps -eo pid,command 2>/dev/null", { encoding: "utf8", timeout: 5000 });
-      output.split("\n").forEach(line => {
-        if (line.includes("cloudflared") && portMatchers.some(m => line.includes(m))) {
-          const parts = line.trim().split(/\s+/);
-          const pid = parts[0];
-          if (pid && !isNaN(pid)) pids.push(pid);
-        }
-      });
-    }
-  } catch { }
-  return pids;
-}
-
 // Kill all 9router processes
 function killAllAppProcesses(appPort) {
   return new Promise((resolve) => {
     try {
-      // Background: MITM + tunnel/cloudflared run on separate ports/processes —
-      // killing them doesn't free the app port, so don't block the critical path.
-      // Server-side MITM manager has stale-lock recovery and starts deferred (~3s).
+      // Background: MITM runs on a separate port/process — killing it doesn't free the
+      // app port, so don't block the critical path. Server-side MITM manager has
+      // stale-lock recovery and starts deferred (~3s).
       setImmediate(() => {
         try { killProxyByPidFile(); } catch {}
-        try { killTunnelByPidFile(); } catch {}
-        try { killCloudflaredByAppPort(appPort); } catch {}
       });
 
       const platform = process.platform;
@@ -630,8 +591,6 @@ function startServer(updatePromise) {
       } catch (e) { }
       // Kill MIT server (privileged process) via PID file
       killProxyByPidFile();
-      // Kill cloudflared/tailscale via PID file (only this app's tunnel)
-      killTunnelByPidFile();
       // Kill server process directly
       if (server.pid) {
         process.kill(server.pid, "SIGKILL");
