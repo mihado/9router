@@ -13,8 +13,6 @@ const COLORS = {
   cyan: "\x1b[36m"
 };
 
-const DEFAULT_PASSWORD = "123456";
-
 /**
  * Show settings menu (tunnel + RTK + reset password)
  * @param {Array<string>} breadcrumb - Breadcrumb path
@@ -83,7 +81,7 @@ async function showSettingsMenu(breadcrumb = []) {
         action: async (d) => { await toggleHeadroom(d?.settings?.headroomEnabled === true); return true; }
       },
       {
-        label: "🔑 Reset Password to Default",
+        label: "🔑 Reset Password",
         action: async () => { await resetPassword(); return true; }
       },
       {
@@ -180,24 +178,8 @@ async function toggleHeadroom(currentlyOn) {
   await pause();
 }
 
-/**
- * Reset dashboard password to default via server API (writes the live SQLite DB).
- * After reset, user can log in with the default password "123456".
- */
 async function resetPassword() {
-  const ok = await confirm(`Reset dashboard password to default "${DEFAULT_PASSWORD}"?`);
-  if (!ok) {
-    showStatus("Cancelled", "info");
-    await pause();
-    return;
-  }
-
-  const result = await api.resetPassword();
-  if (result.success) {
-    showStatus(`Password reset. Default: ${DEFAULT_PASSWORD}`, "success");
-  } else {
-    showStatus(`Failed to reset password: ${result.error}`, "error");
-  }
+  showStatus("Set INITIAL_PASSWORD in your .env to configure the password, then restart.", "info");
   await pause();
 }
 
