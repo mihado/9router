@@ -161,3 +161,36 @@ describe("PATCH /api/settings — password change", () => {
     expect(res.body.error).toContain("Current password required");
   });
 });
+
+describe("PATCH /api/settings — requireLogin immutability", () => {
+  beforeEach(() => {
+    vi.stubEnv("INITIAL_PASSWORD", undefined);
+    mocks.getSettings.mockResolvedValue({});
+  });
+
+  it("rejects requireLogin=false with 400", async () => {
+    const res = await PATCH(request({ requireLogin: false }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("requireLogin is locked to true");
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("rejects requireLogin=undefined (missing) with 400", async () => {
+    const res = await PATCH(request({ requireLogin: undefined }));
+
+    expect(res.status).toBe(400);
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("accepts requireLogin=true silently", async () => {
+    mocks.updateSettings.mockResolvedValue({ requireLogin: true });
+
+    const res = await PATCH(request({ requireLogin: true }));
+
+    expect(res.status).toBe(200);
+    expect(mocks.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ requireLogin: true })
+    );
+  });
+});
