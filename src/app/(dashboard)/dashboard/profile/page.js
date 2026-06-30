@@ -288,21 +288,6 @@ export default function ProfilePage() {
     }
   };
 
-  const updateRequireLogin = async (requireLogin) => {
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requireLogin }),
-      });
-      if (res.ok) {
-        setSettings(prev => ({ ...prev, requireLogin }));
-      }
-    } catch (err) {
-      console.error("Failed to update require login:", err);
-    }
-  };
-
   const updateOidcForm = (field, value) => {
     setOidcForm((prev) => ({ ...prev, [field]: value }));
   };
@@ -557,19 +542,14 @@ export default function ProfilePage() {
           <div className="flex flex-col gap-4">
             <div className="flex items-start sm:items-center justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-base">Require login</p>
+                <p className="font-medium text-sm sm:text-base">Login required</p>
                 <p className="text-xs sm:text-sm text-text-muted">
-                  When ON, dashboard requires password. When OFF, access without login.
+                  Dashboard always requires password authentication. Not configurable.
                 </p>
               </div>
-              <Toggle
-                checked={settings.requireLogin === true}
-                onChange={() => updateRequireLogin(!settings.requireLogin)}
-                disabled={loading}
-              />
+              <Toggle checked={true} disabled={true} />
             </div>
-            {settings.requireLogin === true && (
-              <form onSubmit={handlePasswordChange} className="flex flex-col gap-4 pt-4 border-t border-border/50">
+            <form onSubmit={handlePasswordChange} className="flex flex-col gap-4 pt-4 border-t border-border/50">
                 {settings.hasPassword && (
                   <div className="flex flex-col gap-2">
                     <label className="text-xs sm:text-sm font-medium">Current Password</label>
@@ -624,7 +604,6 @@ export default function ProfilePage() {
                   </Button>
                 </div>
               </form>
-            )}
           </div>
         </Card>
 
