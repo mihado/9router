@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
 import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, CapacityBadges, Select } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { useModelCaps } from "@/shared/hooks/useModelCaps";
 
 // Validate combo name: only a-z, A-Z, 0-9, -, _
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
@@ -19,8 +19,8 @@ export default function CombosPage() {
   const [editingCombo, setEditingCombo] = useState(null);
   const [activeProviders, setActiveProviders] = useState([]);
   const [comboStrategies, setComboStrategies] = useState({});
-  const [modelCaps, setModelCaps] = useState({});
   const [confirmState, setConfirmState] = useState(null);
+  const { getCaps } = useModelCaps();
   const { copied, copy } = useCopyToClipboard();
 
   useEffect(() => {
@@ -29,27 +29,19 @@ export default function CombosPage() {
 
   const fetchData = async () => {
     try {
-      const [combosRes, providersRes, settingsRes, modelsRes] = await Promise.all([
+      const [combosRes, providersRes, settingsRes] = await Promise.all([
         fetch("/api/combos"),
         fetch("/api/providers"),
         fetch("/api/settings"),
-        fetch("/api/models"),
       ]);
       const combosData = await combosRes.json();
       const providersData = await providersRes.json();
       const settingsData = settingsRes.ok ? await settingsRes.json() : {};
-      
+
       // Only LLM combos here - webSearch/webFetch combos belong to media-providers/web
       if (combosRes.ok) setCombos((combosData.combos || []).filter(c => !c.kind || c.kind === "llm"));
       if (providersRes.ok) {
         setActiveProviders(providersData.connections || []);
-      }
-      if (modelsRes.ok) {
-        const md = await modelsRes.json();
-        // Build fullModel -> caps map for badge lookup
-        const map = {};
-        for (const m of md.models || []) if (m.caps) map[m.fullModel] = m.caps;
-        setModelCaps(map);
       }
       setComboStrategies(settingsData.comboStrategies || {});
     } catch (error) {
@@ -189,7 +181,7 @@ export default function CombosPage() {
             <ComboCard
               key={combo.id}
               combo={combo}
-              modelCaps={modelCaps}
+              getCaps={getCaps}
               activeProviders={activeProviders}
               copied={copied}
               onCopy={copy}
@@ -240,7 +232,7 @@ const STRATEGY_OPTIONS = [
   { value: "fusion", label: "Fusion — panel + judge" },
 ];
 
-function ComboCard({ combo, modelCaps = {}, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, onSetStrategy }) {
+function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, onSetStrategy }) {
   const [showJudgeSelect, setShowJudgeSelect] = useState(false);
   const current = strategy.fallbackStrategy || "fallback";
   const judge = strategy.judgeModel || "";
@@ -262,7 +254,7 @@ function ComboCard({ combo, modelCaps = {}, activeProviders = [], copied, onCopy
                 combo.models.slice(0, 3).map((model, index) => (
                   <code key={index} className="inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-text-muted dark:bg-white/5">
                     <span>{model}</span>
-                    <CapacityBadges caps={modelCaps[model]} />
+                    <CapacityBadges caps={getCaps?.(model)} />
                   </code>
                 ))
               )}
