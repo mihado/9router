@@ -7,11 +7,6 @@ export const APP_CONFIG = {
   version: pkg.version,
 };
 
-// GitHub configuration
-export const GITHUB_CONFIG = {
-  changelogUrl: "https://raw.githubusercontent.com/mihado/9router/refs/heads/hardened/CHANGELOG.md",
-};
-
 // Updater configuration
 export const UPDATER_CONFIG = {
   npmPackageName: "9router",
