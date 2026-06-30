@@ -26,6 +26,8 @@ Security-hardening changes for this downstream fork. Full review, findings table
 **Code fixes**
 - `noAuth` free providers (mimo-free, opencode) were permanently active — `auth.js` injected a virtual connection unconditionally and the UI never rendered a toggle. Added `disabledFreeProviders` to the settings blob; `auth.js` returns `null` when listed; dashboard now renders a proper toggle; usage page filters them consistently.
 - Escape single quotes in the sqlite3 CLI fallback queries in the Cursor auto-import route (primary `better-sqlite3` path already uses `?` placeholders).
+- `/v1/models` returned bare IDs with no capability metadata, breaking downstream SDK auto-detection (vision, tools, reasoning all defaulted to false). Now every model entry carries a full `capabilities` object resolved via a 4-tier fallback (provider override → exact match → glob pattern → defaults). Combos aggregate from their constituent models (vision/search = union; tools = intersection; reasoning = primary model; contextWindow = min; maxOutput = max). Capability data fixes: MiMo V2.5 `<think>`-tag reasoning, Qwen max vision, MiniMax M2.x vision.
+- Combo dashboard chips showed capability icons only for providers with live model resolvers (e.g. Cursor). The combo list was building a plain static map with no fallback; switched to `useModelCaps` (the same hook the model picker uses), which resolves capabilities client-side and covers combo-within-combo entries.
 
 **Build & supply chain**
 - Switch to pnpm 11: frozen lockfile, hoisted `node-linker` (`.npmrc`), `packageManager` pin, build-script allowlist (`pnpm-workspace.yaml`).
