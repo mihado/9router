@@ -13,15 +13,29 @@ format translation, quota tracking, multi-account support, and automatic tier fa
 
 ## This fork
 
-Security-hardening changes for this downstream fork. Full review, findings table, and the upstream-sync re-check checklist live in [docs/SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md).
+Security-hardening changes for this downstream fork. Full review, findings table, and
+the upstream-sync re-check checklist live in [docs/SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md).
 
 **Egress & beacons removed**
-- Remove hardcoded Google Analytics beacon (`src/app/layout.js`; drop `@next/third-parties`) — loaded on every dashboard page with no opt-out.
-- Remove unconditional cloudflared binary download at startup (`initializeApp.js`); the default-off tunnel feature still fetches on-demand if ever enabled.
-- Remove donate button and its egress to `9router.com/api/donate` (`Header.js`, `DonateModal.js`).
-- Point `changelogUrl` at this fork's `hardened` branch instead of upstream master; strip `<script>` tags and inline handlers before `dangerouslySetInnerHTML` render (`ChangelogModal.js`).
-- Remove in-app update/shutdown action that would install `decolua/9router` from npm; replace with an informational banner linking to this fork for manual sync.
-- Point skills dashboard URLs and landing page links at `mihado/9router hardened` instead of upstream.
+- Removed hardcoded Google Analytics beacon (`src/app/layout.js`; dropped `@next/third-parties`).
+- Removed entire tunnel subsystem (`src/lib/tunnel/`, `src/app/api/tunnel/`) — cloudflared binary
+  download/spawn, quick-tunnel, tailscale install/connect/funnel, and `/api/version/update`.
+  `initializeApp.js` rewritten from 286 to 70 lines.
+- Removed donate button and its egress to `9router.com/api/donate` (`Header.js`, `DonateModal.js`).
+- Pointed `changelogUrl` at this fork's `hardened` branch; strip `<script>` before
+  `dangerouslySetInnerHTML` render (`ChangelogModal.js`).
+- Removed in-app update/shutdown action that would install `decolua/9router` from npm;
+  `appUpdater.js` deleted. Informational banner links to this fork for manual sync.
+- Updated skill cross-references from `decolua/9router master` to `mihado/9router hardened`.
+  Deleted stale localized READMEs (`i18n/`, `README.zh-CN.md`, `cli/README.md`, `skills/README.md`).
+
+**Authentication hardened**
+- No `"123456"` default password — `INITIAL_PASSWORD` is mandatory. Bootstrap login forces a
+  permanent password set with server-driven `mustChangeHint`. Login page no longer discloses a
+  default. Dead `reset-password` route and CLI surface removed. Regression tests in
+  `tests/unit/auth-login.test.js` + `tests/unit/settings-password.test.js`.
+- `.env.example` `CLOUD_URL` uses a placeholder instead of `9router.com`.
+- `docker-compose.yml` points at `ghcr.io/mihado/9router:hardened`.
 
 **Code fixes**
 - `noAuth` free providers (mimo-free, opencode) were permanently active — `auth.js` injected a virtual connection unconditionally and the UI never rendered a toggle. Added `disabledFreeProviders` to the settings blob; `auth.js` returns `null` when listed; dashboard now renders a proper toggle; usage page filters them consistently.
@@ -38,6 +52,7 @@ Security-hardening changes for this downstream fork. Full review, findings table
 **Documentation**
 - `docs/SECURITY-REVIEW.md` — findings table (CRIT→LOW), what was fixed vs. accepted, upstream-sync re-check checklist.
 - `AGENTS.md` / `CLAUDE.md` — fork rules and context for agents working in this repo.
+- `scripts/upstream-recheck.sh` — automated re-check (13 items, ast-grep + ripgrep). Run on every upstream sync.
 - Reviewed at upstream `v0.5.15` (commit `0b3c794`); clean checklist pass.
 
 ---
@@ -88,7 +103,7 @@ Data persists at `9router-data:/app/data` (SQLite). `.env` is not baked into the
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `JWT_SECRET` | auto-generated (`$DATA_DIR/jwt-secret`, mode 0600) | JWT signing secret for the dashboard auth cookie. Set explicitly to share across instances / survive volume resets. |
-| `INITIAL_PASSWORD` | `123456` | First-login password when no saved hash exists. **Always override.** |
+| `INITIAL_PASSWORD` | *none* (mandatory) | Bootstrap password for first login. Used once to set a permanent password. Must be set before the dashboard is reachable. |
 | `DATA_DIR` | `~/.9router` | App data location (SQLite at `$DATA_DIR/db/data.sqlite`). |
 | `PORT` | framework default | Service port (`20128` in examples). |
 | `HOSTNAME` | framework default | Bind host (Docker defaults to `0.0.0.0`). |
@@ -98,7 +113,7 @@ Data persists at `9router-data:/app/data` (SQLite). `.env` is not baked into the
 | `REQUIRE_API_KEY` | `false` | Enforce Bearer API key on `/v1/*` (recommended for any exposed deploy). |
 | `AUTH_COOKIE_SECURE` | `false` | Force `Secure` auth cookie (set `true` behind an HTTPS reverse proxy). |
 | `ENABLE_REQUEST_LOGS` | `false` | Write request/response logs under `logs/` (plaintext — keep off). |
-| `BASE_URL` / `CLOUD_URL` | `http://localhost:20128` / `https://9router.com` | Server-side base + cloud-sync URLs (cloud sync is opt-in, off by default). |
+| `BASE_URL` / `CLOUD_URL` / `NEXT_PUBLIC_CLOUD_URL` | `http://localhost:20128` / *placeholder* | Server-side base + cloud-sync URLs (cloud sync is opt-in, off by default). Change `CLOUD_URL` placeholder in `.env.example` before use. |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | empty | Optional outbound proxy for upstream provider calls (lowercase variants supported). |
 
 Runtime files: SQLite at `${DATA_DIR}/db/data.sqlite`, auto-backups under `${DATA_DIR}/db/backups/`,
