@@ -47,8 +47,17 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
 - **No telemetry exfiltration**: machine ID is local-only; update check is a manual npm-registry poll;
   no auto-update; no secret-upload sync job to `9router.com`.
 
+| 10 | 🟡 MED | Sidebar polled `npm install -g 9router@latest` update banner and offered an in-app "Copy & Shutdown" action pointing at the upstream npm package (`decolua/9router`), not this fork. Clicking it would install unreviewed upstream code. (`src/shared/components/Sidebar.js`, `src/lib/appUpdater.js`) | **Fixed in source** — removed all update-action UI and handlers; npm version check retained as an informational banner that links to `mihado/9router hardened` branch for manual sync. |
+| 11 | 🟢 LOW | Skills dashboard raw URLs pointed at upstream `decolua/9router master`; landing page GitHub links also pointed at upstream. (`src/shared/constants/skills.js`, `src/app/landing/`) | **Fixed in source** — `REPO`/`BRANCH` in `skills.js` updated to `mihado/9router` / `hardened`; landing page links updated. |
+
 ## Changes applied in this fork
 
+- **Removed in-app update action** — the sidebar offered a "Copy & Shutdown" flow that installed the
+  upstream `npm i -g 9router@latest` package. Replaced with an informational banner (links to
+  `mihado/9router hardened` branch for manual sync); the npm version check itself is retained.
+  (`src/shared/components/Sidebar.js`; `src/lib/appUpdater.js` unused but preserved.) (Finding 10)
+- **Skills and landing page links pointed at upstream** — `src/shared/constants/skills.js` `REPO`/`BRANCH`
+  updated to `mihado/9router` / `hardened`; landing page component links updated. (Finding 11)
 - **Free-provider toggle** — `mimo-free` (Xiaomi MiMo Code) and `opencode` carry `noAuth: true` in
   `open-sse/providers/registry/`, which previously caused `auth.js` to inject a synthetic
   `{id: "noauth", isActive: true, accessToken: "public"}` connection unconditionally — no settings
@@ -112,7 +121,11 @@ previously reviewed upstream commit and re-verify each item; update the "Reviewe
    no new job uploads tokens/settings/DB contents.
 7. **Auth surface** — re-check `src/dashboardGuard.js` public allowlist and the "local request = trusted"
    logic for new unauthenticated routes.
-8. **Changelog URL** — `src/shared/constants/config.js` `changelogUrl` must point to `mihado/9router`
+8. **Skills** — `git diff [prev]..HEAD -- skills/` for new or modified skill markdown files. Skills are
+   static documentation served to AI agents; check for new API instructions that expose endpoints or
+   auth flows not previously documented, and confirm no skill file embeds executable content or external
+   URLs beyond `localhost:20128`.
+9. **Changelog URL** — `src/shared/constants/config.js` `changelogUrl` must point to `mihado/9router`
    `hardened` branch, not upstream master. Re-check after any config sync.
-9. **Lockfile + build** — `pnpm install --frozen-lockfile` still clean; `docker build` succeeds; review any
+10. **Lockfile + build** — `pnpm install --frozen-lockfile` still clean; `docker build` succeeds; review any
    new/changed dependencies in the Dependabot/lockfile diff.

@@ -11,6 +11,35 @@ format translation, quota tracking, multi-account support, and automatic tier fa
 
 ---
 
+## This fork
+
+Security-hardening changes for this downstream fork. Full review, findings table, and the upstream-sync re-check checklist live in [docs/SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md).
+
+**Egress & beacons removed**
+- Remove hardcoded Google Analytics beacon (`src/app/layout.js`; drop `@next/third-parties`) — loaded on every dashboard page with no opt-out.
+- Remove unconditional cloudflared binary download at startup (`initializeApp.js`); the default-off tunnel feature still fetches on-demand if ever enabled.
+- Remove donate button and its egress to `9router.com/api/donate` (`Header.js`, `DonateModal.js`).
+- Point `changelogUrl` at this fork's `hardened` branch instead of upstream master; strip `<script>` tags and inline handlers before `dangerouslySetInnerHTML` render (`ChangelogModal.js`).
+- Remove in-app update/shutdown action that would install `decolua/9router` from npm; replace with an informational banner linking to this fork for manual sync.
+- Point skills dashboard URLs and landing page links at `mihado/9router hardened` instead of upstream.
+
+**Code fixes**
+- `noAuth` free providers (mimo-free, opencode) were permanently active — `auth.js` injected a virtual connection unconditionally and the UI never rendered a toggle. Added `disabledFreeProviders` to the settings blob; `auth.js` returns `null` when listed; dashboard now renders a proper toggle; usage page filters them consistently.
+- Escape single quotes in the sqlite3 CLI fallback queries in the Cursor auto-import route (primary `better-sqlite3` path already uses `?` placeholders).
+
+**Build & supply chain**
+- Switch to pnpm 11: frozen lockfile, hoisted `node-linker` (`.npmrc`), `packageManager` pin, build-script allowlist (`pnpm-workspace.yaml`).
+- Pin base image by digest in `Dockerfile`.
+- CI publishes only to GHCR, only from `hardened`, with a hard guard against any other ref; drop upstream Docker Hub push.
+- Enable Dependabot for npm / github-actions / docker, targeting `hardened`.
+
+**Documentation**
+- `docs/SECURITY-REVIEW.md` — findings table (CRIT→LOW), what was fixed vs. accepted, upstream-sync re-check checklist.
+- `AGENTS.md` / `CLAUDE.md` — fork rules and context for agents working in this repo.
+- Reviewed at upstream `v0.5.15` (commit `0b3c794`); clean checklist pass.
+
+---
+
 ## How it works
 
 ```
