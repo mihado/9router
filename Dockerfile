@@ -22,6 +22,8 @@ RUN --mount=type=cache,target=/pnpm/store \
 
 COPY . ./
 ENV NEXT_TELEMETRY_DISABLED=1
+ARG GIT_SHA=""
+ENV GIT_SHA=$GIT_SHA
 RUN pnpm run build
 
 FROM ${NODE_IMAGE} AS runner
