@@ -24,6 +24,11 @@ Treat every change through a security lens.
 - **Removed the cloudflared boot-time binary download** (`src/shared/services/initializeApp.js`) — upstream
   fetched+executed the cloudflared binary from GitHub at every startup. The default-off tunnel feature is
   otherwise untouched (fetches on-demand if enabled).
+- **Free-provider toggle** — `mimo-free` and `opencode` carried `noAuth: true` which caused `auth.js` to
+  inject a virtual public connection unconditionally (no way to disable). Added `disabledFreeProviders`
+  to the SQLite settings blob; `auth.js` returns `null` when the provider is listed there; the dashboard
+  provider page now renders a toggle for noAuth providers; the usage page filters them out consistently.
+  No new API surface — uses the existing `PATCH /api/settings` endpoint.
 
 Runtime secrets and hardening (`INITIAL_PASSWORD`, `REQUIRE_API_KEY`, `AUTH_COOKIE_SECURE`, unique
 `JWT_SECRET`/`API_KEY_SECRET`/`MACHINE_ID_SALT`, loopback-bound port) live in the **deployment repo**, not

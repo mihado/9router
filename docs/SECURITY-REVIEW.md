@@ -6,7 +6,7 @@ and run it internally behind Traefik. This document records the security review 
 the changes we made, the risks we accepted, and — most importantly — the **checklist to re-run every time
 we sync from upstream**.
 
-> Review date: 2026-06-28 · Reviewed at upstream version `0.5.12` (commit `cce47dd`).
+> Review date: 2026-06-30 · Reviewed at upstream version `0.5.15` (commit `0b3c794`).
 
 ## Why a fork
 
@@ -45,6 +45,24 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
   no auto-update; no secret-upload sync job to `9router.com`.
 
 ## Changes applied in this fork
+
+- **Free-provider toggle** — `mimo-free` (Xiaomi MiMo Code) and `opencode` carry `noAuth: true` in
+  `open-sse/providers/registry/`, which previously caused `auth.js` to inject a synthetic
+  `{id: "noauth", isActive: true, accessToken: "public"}` connection unconditionally — no settings
+  check, no way to disable. The dashboard UI also gated the toggle on `stats.total > 0`, and because
+  noAuth providers have no DB-stored connections that count is always 0, so no toggle was ever rendered.
+  Fixed in three files:
+  - `src/sse/services/auth.js` — before injecting the virtual connection, reads
+    `settings.disabledFreeProviders` (new SQLite settings key, array of provider IDs); returns `null`
+    immediately if the provider is listed, making the router treat it as unconfigured.
+  - `src/app/(dashboard)/dashboard/providers/page.js` — added `disabledFreeProviders` state,
+    fetches `/api/settings` on mount, renders a toggle for noAuth providers regardless of
+    `stats.total`, and persists changes via `PATCH /api/settings`.
+  - `src/shared/components/UsageStats.js` — the usage page was also hardcoding all noAuth free
+    providers into the provider list regardless of disabled state; fixed to filter against
+    `disabledFreeProviders` from `/api/settings`.
+  No new API surface: `PATCH /api/settings` already existed and strips protected keys; the new
+  `disabledFreeProviders` array is an ordinary settings payload.
 
 - **Removed Google Analytics** — `src/app/layout.js`; dropped `@next/third-parties` dependency. (Finding 3)
 - **Build switched to pnpm with a committed `pnpm-lock.yaml`** and `--frozen-lockfile`, for reproducible,
