@@ -10,7 +10,7 @@
 #   - No default password (INITIAL_PASSWORD mandatory)
 #   - No stale upstream references (9router.com, decolua/9router)
 #   - No Google Analytics / third-party beacons
-#   - changelogUrl → this fork
+#   - No ChangelogModal fetch → dangerouslySetInnerHTML path
 #
 # Combines structural (ast-grep) and text (ripgrep) checks.
 #
@@ -102,10 +102,11 @@ echo "  Skills reference upstream raw URLs (serve to AI agents):"
 "$RG" -n 'decolua/9router|9router\.com' "$REPO_ROOT/skills/" 2>/dev/null | head -10 | sed 's/^/    /' || true
 echo "  $(rg -ln 'decolua/9router|9router\.com' "$REPO_ROOT/skills/" 2>/dev/null | wc -l | tr -d ' ') skill files with upstream refs"
 
-# ── 7. Changelog URL ──
-hdr "Changelog URL points to this fork"
-rg_ok 'mihado/9router.*hardened' "$REPO_ROOT/src/shared/constants/config.js" \
-  && pass "mihado/9router hardened" || block "NOT pointing at this fork"
+# ── 7. ChangelogModal removed (must stay removed — fetch+innerHTML XSS path) ──
+hdr "ChangelogModal"
+for f in "src/shared/components/ChangelogModal.js"; do
+  [ -e "$REPO_ROOT/$f" ] && block "$f still present" || pass "absent  $f"
+done
 
 # ── 8. Stale i18n/README readmes ──
 hdr "Stale readmes (i18n/, README.zh-CN.md)"
