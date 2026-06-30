@@ -30,6 +30,9 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
 | 6 | 🟡 MED | Provider access/refresh tokens + API keys stored **plaintext** in SQLite `providerConnections.data`; DB export returns them in clear (`src/lib/db/repos/connectionsRepo.js`). | **Accepted** — treat the `9router-data` volume and any DB export as secret material (disk encryption / restrictive perms). No app-level at-rest encryption exists. |
 | 7 | 🟡 MED | `API_KEY_SECRET` / `MACHINE_ID_SALT` ship as known default strings in `.env.example`. (Not directly forgeable — keys are validated by DB lookup, not CRC — but should be unique.) | Mitigated by **deploy config**: set unique values. |
 
+| 8 | 🟡 MED | `ChangelogModal.js` fetched `CHANGELOG.md` from **upstream** `decolua/9router` master and rendered it via `dangerouslySetInnerHTML` without sanitization. A compromised upstream repository could inject arbitrary JS into the admin dashboard session. | **Fixed in source** — URL changed to this fork's `hardened` branch (`src/shared/constants/config.js`); output filtered for `<script>` tags and inline event handlers before rendering (`ChangelogModal.js`). |
+| 9 | 🟢 LOW | `src/app/api/oauth/cursor/auto-import/route.js` sqlite3 CLI fallback (lines 143, 158) built queries via string interpolation (`WHERE key='${key}'`). Keys come from hardcoded arrays so not user-controlled, but the pattern violates parameterization principles. | **Fixed in source** — single quotes in key values are now escaped with standard SQL doubling (`key.replace(/'/g, "''")`) before interpolation. The primary better-sqlite3 path already uses `?` placeholders. |
+
 ### Cleared (no action needed)
 
 - **MITM subsystem** (`src/mitm/**`): installs a 10-year system Root CA, rewrites `/etc/hosts`, captures a
@@ -77,6 +80,15 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
   unconditional `ensureCloudflared()` call at startup. (Finding 4) The edge router's own Cloudflare
   tunnel (separate `cloudflared` service in the deployment repo) is unrelated to this.
 
+- **Changelog XSS fix** — `ChangelogModal.js` was fetching `CHANGELOG.md` from the upstream `decolua/9router`
+  master branch and rendering it unsanitized via `dangerouslySetInnerHTML`. Changed the URL to this fork's
+  `hardened` branch (`src/shared/constants/config.js`) and added a `<script>`/inline-handler strip before
+  rendering. (Finding 8)
+- **Cursor auto-import SQL escaping** — sqlite3 CLI fallback in
+  `src/app/api/oauth/cursor/auto-import/route.js` used string interpolation for SQL queries; switched to
+  single-quote escaping (`key.replace(/'/g, "''")`). Keys are hardcoded so not exploitable, but now
+  consistent with the parameterized primary path. (Finding 9)
+
 Runtime hardening (strong `INITIAL_PASSWORD`, `REQUIRE_API_KEY=true`, `AUTH_COOKIE_SECURE=true`, unique
 `JWT_SECRET`/`API_KEY_SECRET`/`MACHINE_ID_SALT`, loopback-bound port) is applied in the **deployment repo**
 (`traefik-svc`), not here, so secrets never live in this source tree.
@@ -100,5 +112,7 @@ previously reviewed upstream commit and re-verify each item; update the "Reviewe
    no new job uploads tokens/settings/DB contents.
 7. **Auth surface** — re-check `src/dashboardGuard.js` public allowlist and the "local request = trusted"
    logic for new unauthenticated routes.
-8. **Lockfile + build** — `pnpm install --frozen-lockfile` still clean; `docker build` succeeds; review any
+8. **Changelog URL** — `src/shared/constants/config.js` `changelogUrl` must point to `mihado/9router`
+   `hardened` branch, not upstream master. Re-check after any config sync.
+9. **Lockfile + build** — `pnpm install --frozen-lockfile` still clean; `docker build` succeeds; review any
    new/changed dependencies in the Dependabot/lockfile diff.
