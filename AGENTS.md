@@ -27,3 +27,6 @@ here — never commit secrets to this source tree.
    Dependabot/lockfile diff.
 4. **Don't reintroduce** removed beacons/telemetry or weaken auth defaults. Flag anything that adds
    outbound egress, privileged shell-outs, or unauthenticated routes.
+5. **Conventional commits:** use `type(scope): description` format. `security:`, `fix:`,
+   `feat(area):`, `build:`, `ci:`, `docs:`, `test:`, `chore:`, `refactor:`. Keep subject
+   lines under 72 chars, imperative mood, no period. Wrap body at 72 chars.
