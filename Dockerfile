@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
-ARG NODE_IMAGE=node:22-alpine
+# Base image pinned by digest for reproducible builds (node:22-alpine).
+# Bump via Dependabot (docker ecosystem) — see .github/dependabot.yml.
+ARG NODE_IMAGE=node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
 FROM ${NODE_IMAGE} AS base
 WORKDIR /app
 
@@ -7,13 +9,22 @@ FROM base AS builder
 
 RUN apk --no-cache upgrade && apk --no-cache add python3 make g++ linux-headers
 
-COPY package.json ./
-RUN --mount=type=cache,target=/root/.npm \
-  npm install
+# pnpm via corepack; exact version resolved from package.json "packageManager".
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
+
+# Install with a frozen lockfile so the build fails loudly on any lockfile drift.
+# pnpm-workspace.yaml carries pnpm 11 settings (build-script allowlist); .npmrc sets node-linker=hoisted.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+RUN --mount=type=cache,target=/pnpm/store \
+  pnpm install --frozen-lockfile
 
 COPY . ./
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+ARG GIT_SHA=""
+ENV GIT_SHA=$GIT_SHA
+RUN pnpm run build
 
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
