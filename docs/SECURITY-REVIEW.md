@@ -6,7 +6,7 @@ and run it internally behind Traefik. This document records the security review 
 the changes we made, the risks we accepted, and — most importantly — the **checklist to re-run every time
 we sync from upstream**.
 
-> Review date: 2026-06-30 · Reviewed at upstream version `0.5.15` (commit `0b3c794`).
+> Review date: 2026-07-01 · Reviewed at upstream version `0.5.15` (commit `0b3c794`). Last hardened: 2026-07-01.
 
 ## Why a fork
 
@@ -22,10 +22,10 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
 
 | # | Sev | Finding | Status in this fork |
 |---|-----|---------|---------------------|
-| 1 | 🔴 CRIT | Dashboard password defaults to `123456` when `INITIAL_PASSWORD` unset; the DB-export endpoint (`/api/settings/database`) re-checks the *same* password and returns **all provider tokens in cleartext**, with no rate limit on the export password header. (`src/app/api/auth/login/route.js`, `src/lib/auth/dashboardSession.js:75-82`, `src/app/api/settings/database/route.js:16`) | Mitigated by **deploy config**: set strong `INITIAL_PASSWORD`, change in-dashboard on first run. |
+| 1 | 🔴 CRIT | Dashboard password defaults to `123456` when `INITIAL_PASSWORD` unset; the DB-export endpoint (`/api/settings/database`) re-checks the *same* password and returns **all provider tokens in cleartext**, with no rate limit on the export password header. (`src/app/api/auth/login/route.js`, `src/lib/auth/dashboardSession.js:75-82`, `src/app/api/settings/database/route.js:16`) | **Fixed in source** — `"123456"` fallback removed. `INITIAL_PASSWORD` is now mandatory. Bootstrap login forces a permanent password set. Login page no longer discloses the default. The DB-export rate-limit gap remains. |
 | 2 | 🟠 HIGH | Any caller reaching `127.0.0.1:20128` is treated as "local" and gets **unauthenticated** full proxy access to all provider credentials (`src/dashboardGuard.js:136`). Remote callers via Traefik correctly require an API key. | Mitigated by **deploy config**: loopback-bind the port (only Traefik reaches it) + `REQUIRE_API_KEY=true`. |
 | 3 | 🟠 HIGH | Hardcoded Google Analytics (`G-LC959F603F`) loaded on every dashboard page, no env toggle (`src/app/layout.js`). | **Fixed in source** — GA import + element removed; `@next/third-parties` dropped from deps. |
-| 4 | 🟠 HIGH | cloudflared binary auto-downloaded from GitHub at boot, unconditionally (even with tunnels disabled), no checksum/signature verify (`src/shared/services/initializeApp.js:79` → `src/lib/tunnel/cloudflare/cloudflared.js`). | **Fixed in source** — removed the unconditional `ensureCloudflared()` boot call. The (default-off) tunnel feature still fetches the binary on-demand if ever enabled; nothing is fetched/executed at startup. |
+| 4 | 🟠 HIGH | cloudflared binary auto-downloaded from GitHub at boot, unconditionally (even with tunnels disabled), no checksum/signature verify (`src/shared/services/initializeApp.js:79` → `src/lib/tunnel/cloudflare/cloudflared.js`). | **Fixed in source** — entire tunnel subsystem removed (cloudflared + tailscale): `src/lib/tunnel/`, `src/app/api/tunnel/`, `appUpdater.js`, `/api/version/update`. The edge router's own Cloudflare tunnel (separate `cloudflared` service in the deployment repo) is unrelated. |
 | 5 | 🟠 HIGH | SSRF guard is string-only — no DNS resolution / IP-pinning, so DNS-rebinding, 302-redirects, decimal-IP (`2130706433`), and some IPv6 forms bypass it (`src/shared/utils/ssrfGuard.js`). Applies to the auth-gated web-fetch tool (`src/sse/handlers/fetch.js`). | **Accepted / mitigated by config** — gated behind `REQUIRE_API_KEY=true` + don't expose the proxy to untrusted clients + egress-filter the router. No source fix yet. |
 | 6 | 🟡 MED | Provider access/refresh tokens + API keys stored **plaintext** in SQLite `providerConnections.data`; DB export returns them in clear (`src/lib/db/repos/connectionsRepo.js`). | **Accepted** — treat the `9router-data` volume and any DB export as secret material (disk encryption / restrictive perms). No app-level at-rest encryption exists. |
 | 7 | 🟡 MED | `API_KEY_SECRET` / `MACHINE_ID_SALT` ship as known default strings in `.env.example`. (Not directly forgeable — keys are validated by DB lookup, not CRC — but should be unique.) | Mitigated by **deploy config**: set unique values. |
@@ -47,15 +47,38 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
 - **No telemetry exfiltration**: machine ID is local-only; update check is a manual npm-registry poll;
   no auto-update; no secret-upload sync job to `9router.com`.
 
-| 10 | 🟡 MED | Sidebar polled `npm install -g 9router@latest` update banner and offered an in-app "Copy & Shutdown" action pointing at the upstream npm package (`decolua/9router`), not this fork. Clicking it would install unreviewed upstream code. (`src/shared/components/Sidebar.js`, `src/lib/appUpdater.js`) | **Fixed in source** — removed all update-action UI and handlers; npm version check retained as an informational banner that links to `mihado/9router hardened` branch for manual sync. |
-| 11 | 🟢 LOW | Skills dashboard raw URLs pointed at upstream `decolua/9router master`; landing page GitHub links also pointed at upstream. (`src/shared/constants/skills.js`, `src/app/landing/`) | **Fixed in source** — `REPO`/`BRANCH` in `skills.js` updated to `mihado/9router` / `hardened`; landing page links updated. |
+| 10 | 🟡 MED | Sidebar polled `npm install -g 9router@latest` update banner and offered an in-app "Copy & Shutdown" action pointing at the upstream npm package (`decolua/9router`), not this fork. Clicking it would install unreviewed upstream code. (`src/shared/components/Sidebar.js`, `src/lib/appUpdater.js`) | **Fixed in source** — removed all update-action UI and handlers; `appUpdater.js` deleted. npm version check retained as an informational banner that links to `mihado/9router hardened` branch for manual sync. |
+| 11 | 🟢 LOW | Skills dashboard raw URLs pointed at upstream `decolua/9router master`; landing page GitHub links also pointed at upstream. (`src/shared/constants/skills.js`, `src/app/landing/`) | **Fixed in source** — `REPO`/`BRANCH` in `skills.js` updated to `mihado/9router` / `hardened`; landing page links updated. All skill cross-references in `skills/*/SKILL.md` updated to `mihado/9router hardened`. Stale localized READMEs (`i18n/`, `README.zh-CN.md`, `cli/README.md`) deleted. `gitbook/` docs excluded from scrub (upstream user docs, merge-conflict surface). |
+| 12 | 🟢 LOW | `Dockerfile` and `docker-compose.yml` referenced upstream `decolua/9router` image. | **Fixed in source** — image refs updated to `ghcr.io/mihado/9router:hardened`. |
 
 ## Changes applied in this fork
 
 - **Removed in-app update action** — the sidebar offered a "Copy & Shutdown" flow that installed the
   upstream `npm i -g 9router@latest` package. Replaced with an informational banner (links to
   `mihado/9router hardened` branch for manual sync); the npm version check itself is retained.
-  (`src/shared/components/Sidebar.js`; `src/lib/appUpdater.js` unused but preserved.) (Finding 10)
+  (`src/shared/components/Sidebar.js`; `src/lib/appUpdater.js` deleted.) (Finding 10)
+- **Removed entire tunnel subsystem** — `src/lib/tunnel/` (cloudflared binary download/spawn,
+  quick-tunnel, tailscale install/connect/funnel), `src/app/api/tunnel/` (6 route files),
+  `src/lib/appUpdater.js`, and `src/app/api/version/update/` all deleted. `initializeApp.js`
+  rewritten from 286→70 lines: tunnel watchdog, network monitor, and signal handlers removed.
+  `dashboardGuard.js` tunnel/tailscale allowlist entries and `tunnelDashboardAccess` gate
+  stripped. Endpoint page reduced from 1295→~300 lines (API-keys-only UI). CLI tunnel process
+  kill code deleted; tunnel API methods replaced with no-op stubs. (Finding 4, GAP-5, GAP-6)
+- **Removed default `"123456"` password fallback** — `INITIAL_PASSWORD` is now mandatory for
+  first login. No password configured returns 500 with bootstrap guidance. Successful bootstrap
+  login returns `mustChangePassword:true` + `mustChangeHint`, forcing a permanent password set.
+  Login page no longer discloses the default password. `settings/route.js` first-time password
+  gate tightened: requires `currentPassword`, validates against `INITIAL_PASSWORD`. Dead
+  `reset-password` route and CLI surface deleted. All recovery strings aligned across API
+  errors, lockout hint, and on-page help. (Finding 1, GAP-3)
+- **Deleted stale readmes** — `i18n/` (4 localized READMEs), `README.zh-CN.md`, `cli/README.md`,
+  `skills/README.md` all carried upstream `9router.com`/`decolua` references and are not
+  maintained for this fork. (GAP-12)
+- **Pointed remaining URLs at this fork** — `.env.example` `CLOUD_URL`/`NEXT_PUBLIC_CLOUD_URL`
+  changed to placeholder. `docker-compose.yml` image ref → `ghcr.io/mihado/9router:hardened`.
+  All skill cross-references in `skills/*/SKILL.md` updated from
+  `decolua/9router master` → `mihado/9router hardened`. `gitbook/` docs excluded from scrub
+  (71 upstream user-facing files, merge-conflict surface). (GAP-4, GAP-11)
 - **Skills and landing page links pointed at upstream** — `src/shared/constants/skills.js` `REPO`/`BRANCH`
   updated to `mihado/9router` / `hardened`; landing page component links updated. (Finding 11)
 - **Free-provider toggle** — `mimo-free` (Xiaomi MiMo Code) and `opencode` carry `noAuth: true` in
@@ -102,6 +125,22 @@ Runtime hardening (strong `INITIAL_PASSWORD`, `REQUIRE_API_KEY=true`, `AUTH_COOK
 `JWT_SECRET`/`API_KEY_SECRET`/`MACHINE_ID_SALT`, loopback-bound port) is applied in the **deployment repo**
 (`traefik-svc`), not here, so secrets never live in this source tree.
 
+Additional regression tests in `tests/unit/auth-login.test.js` (10 cases) and
+`tests/unit/settings-password.test.js` (7 cases) cover the bootstrap password flow,
+`mustChangePassword` logic, rate limiting, and first-time/already-set password changes.
+
+## Automated re-check
+
+Run `scripts/upstream-recheck.sh` after every upstream sync — 13 structural + text checks
+covering all checklist items and the new invariants:
+
+```bash
+./scripts/upstream-recheck.sh                 # full scan
+./scripts/upstream-recheck.sh --diff <ref>    # show changed files + full scan
+```
+
+Requires: `ast-grep` (`sg`) and `ripgrep` (`rg`) on PATH (`brew install ast-grep ripgrep`).
+
 ## Upstream-sync re-check checklist
 
 **Run this on every `git fetch upstream` / merge before building or publishing.** Diff against the
@@ -128,4 +167,11 @@ previously reviewed upstream commit and re-verify each item; update the "Reviewe
 9. **Changelog URL** — `src/shared/constants/config.js` `changelogUrl` must point to `mihado/9router`
    `hardened` branch, not upstream master. Re-check after any config sync.
 10. **Lockfile + build** — `pnpm install --frozen-lockfile` still clean; `docker build` succeeds; review any
-   new/changed dependencies in the Dependabot/lockfile diff.
+    new/changed dependencies in the Dependabot/lockfile diff.
+11. **Tunnel re-introduced** — confirm `src/lib/tunnel/` and `src/app/api/tunnel/` stay deleted; no new
+    `ensureCloudflared`, `spawnQuickTunnel`, tailscale install, or binary download paths in `initializeApp.js`.
+12. **Default password regressed** — `git grep -nE '"123456"|DEFAULT_PASSWORD' -- 'src/*'` and
+    `sg run -p 'process.env.$KEY || "123456"' --lang js src/` must both be empty.
+13. **Stale readmes re-introduced** — confirm `i18n/`, `README.zh-CN.md`, `cli/README.md`,
+    `skills/README.md` stay deleted.
+14. **`.env.example` / `docker-compose.yml`** — no upstream `9router.com` or `decolua` image refs.
