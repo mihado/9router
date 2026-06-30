@@ -13,7 +13,7 @@ import { resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { resolveCopilotModels } from "open-sse/services/copilotModels.js";
 import { resolveClinepassModels } from "open-sse/services/clinepassModels.js";
 import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
-import { capabilitiesFromServiceKind } from "open-sse/providers/capabilities.js";
+import { capabilitiesFromServiceKind, getCapabilitiesForModel, aggregateComboCapabilities } from "open-sse/providers/capabilities.js";
 
 // Per-provider live model resolvers. Each receives a connection record and
 // returns { models: [{ id, name? }, ...] } | null on failure.
@@ -185,10 +185,6 @@ function comboMatchesKinds(combo, kindFilter) {
   return kindFilter.includes(kind);
 }
 
-/**
- * Build OpenAI-format models list filtered by service kinds.
- * @param {string[]} kindFilter - List of service kinds to include (e.g. ["llm"], ["webSearch","webFetch"]).
- */
 export async function buildModelsList(kindFilter) {
   let connections = [];
   try {
@@ -246,6 +242,9 @@ export async function buildModelsList(kindFilter) {
     };
     if (combo.kind === "webSearch" || combo.kind === "webFetch") {
       entry.kind = combo.kind;
+    } else {
+      const comboCaps = aggregateComboCapabilities(combo.models);
+      if (comboCaps) entry.capabilities = comboCaps;
     }
     models.push(entry);
   }
@@ -265,6 +264,7 @@ export async function buildModelsList(kindFilter) {
           id: `${alias}/${model.id}`,
           object: "model",
           owned_by: alias,
+          capabilities: getCapabilitiesForModel(alias, model.id),
         });
       }
     }
@@ -421,8 +421,9 @@ export async function buildModelsList(kindFilter) {
           object: "model",
           owned_by: outputAlias,
         };
-        const caps = liveCapabilitiesById.get(modelId) || capabilitiesFromServiceKind(customKind || liveKind);
-        if (caps) model.capabilities = caps;
+        const liveCaps = liveCapabilitiesById.get(modelId);
+        const serviceCaps = capabilitiesFromServiceKind(customKind || liveKind);
+        model.capabilities = liveCaps || serviceCaps || getCapabilitiesForModel(providerId, modelId);
         models.push(model);
       }
 
