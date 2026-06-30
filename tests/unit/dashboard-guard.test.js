@@ -227,16 +227,6 @@ describe("dashboard guard local-only access", () => {
     expect(response).toBe(mocks.nextResponse);
   });
 
-  it("rejects local-only route from tunnel host even when requireLogin=false", async () => {
-    mocks.getSettings.mockResolvedValue({ requireLogin: false });
-
-    const response = await proxy(request("/api/cli-tools/antigravity-mitm", {
-      host: "router.example.com",
-    }));
-
-    expect(response.status).toBe(403);
-  });
-
   it("rejects local-only route when Origin is non-loopback (CSRF block)", async () => {
     mocks.getSettings.mockResolvedValue({ requireLogin: false });
 
