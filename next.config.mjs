@@ -24,7 +24,9 @@ const nextConfig = {
   images: {
     unoptimized: true
   },
-  env: {},
+  env: {
+    NEXT_PUBLIC_GIT_SHA: process.env.GIT_SHA || "",
+  },
   experimental: {
     // #1529/#1572: LLM clients can send long context or base64 image payloads through /v1 rewrites.
     proxyClientMaxBodySize,
