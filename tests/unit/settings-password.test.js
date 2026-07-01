@@ -176,11 +176,31 @@ describe("PATCH /api/settings — requireLogin immutability", () => {
     expect(mocks.updateSettings).not.toHaveBeenCalled();
   });
 
-  it("rejects requireLogin=undefined (missing) with 400", async () => {
-    const res = await PATCH(request({ requireLogin: undefined }));
+  it("rejects requireLogin=null with 400", async () => {
+    const res = await PATCH(request({ requireLogin: null }));
 
     expect(res.status).toBe(400);
+    expect(res.body.error).toBe("requireLogin is locked to true");
     expect(mocks.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("rejects requireLogin=0 with 400", async () => {
+    const res = await PATCH(request({ requireLogin: 0 }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("requireLogin is locked to true");
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("allows PATCH that omits requireLogin entirely", async () => {
+    mocks.updateSettings.mockResolvedValue({});
+
+    const res = await PATCH(request({ fallbackStrategy: "fill-first" }));
+
+    expect(res.status).toBe(200);
+    expect(mocks.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ fallbackStrategy: "fill-first" })
+    );
   });
 
   it("accepts requireLogin=true silently", async () => {
