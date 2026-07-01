@@ -43,6 +43,11 @@ export async function PATCH(request) {
     // Strip protected secrets before any internal handling sets them
     for (const key of PROTECTED_SETTING_KEYS) delete body[key];
 
+    // requireLogin is immutable: dashboard auth is always on for public deployments.
+    if (Object.prototype.hasOwnProperty.call(body, "requireLogin") && body.requireLogin !== true) {
+      return NextResponse.json({ error: "requireLogin is locked to true" }, { status: 400 });
+    }
+
     // If updating password, hash it
     if (body.newPassword) {
       const settings = await getSettings();
@@ -58,10 +63,15 @@ export async function PATCH(request) {
           return NextResponse.json({ error: "Invalid current password" }, { status: 401 });
         }
       } else {
-        // First time setting password, no current password needed
-        // Allow empty currentPassword or default "123456"
-        if (body.currentPassword && body.currentPassword !== "123456") {
-           return NextResponse.json({ error: "Invalid current password" }, { status: 401 });
+        if (!body.currentPassword) {
+          return NextResponse.json({ error: "Current password required to set the initial password" }, { status: 400 });
+        }
+        const pw = process.env.INITIAL_PASSWORD;
+        if (pw && body.currentPassword !== pw) {
+          return NextResponse.json({ error: "Invalid current password" }, { status: 401 });
+        }
+        if (!pw) {
+          return NextResponse.json({ error: "INITIAL_PASSWORD not configured on server. Set it first, restart, then try again." }, { status: 400 });
         }
       }
 

@@ -140,7 +140,7 @@ async function extractTokensViaCLI(dbPath) {
   for (const key of ACCESS_TOKEN_KEYS) {
     try {
       const raw = await query(
-        `SELECT value FROM itemTable WHERE key='${key}' LIMIT 1`,
+        `SELECT value FROM itemTable WHERE key='${key.replace(/'/g, "''")}' LIMIT 1`,
       );
       if (raw) {
         accessToken = normalize(raw);
@@ -155,7 +155,7 @@ async function extractTokensViaCLI(dbPath) {
   for (const key of MACHINE_ID_KEYS) {
     try {
       const raw = await query(
-        `SELECT value FROM itemTable WHERE key='${key}' LIMIT 1`,
+        `SELECT value FROM itemTable WHERE key='${key.replace(/'/g, "''")}' LIMIT 1`,
       );
       if (raw) {
         machineId = normalize(raw);
