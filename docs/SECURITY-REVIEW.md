@@ -23,14 +23,14 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
 | # | Sev | Finding | Status in this fork |
 |---|-----|---------|---------------------|
 | 1 | 🔴 CRIT | Dashboard password defaults to `123456` when `INITIAL_PASSWORD` unset; the DB-export endpoint (`/api/settings/database`) re-checks the *same* password and returns **all provider tokens in cleartext**, with no rate limit on the export password header. (`src/app/api/auth/login/route.js`, `src/lib/auth/dashboardSession.js:75-82`, `src/app/api/settings/database/route.js:16`) | **Fixed in source** — `"123456"` fallback removed. `INITIAL_PASSWORD` is now mandatory. Bootstrap login forces a permanent password set. Login page no longer discloses the default. The DB-export rate-limit gap remains. |
-| 2 | 🟠 HIGH | Any caller reaching `127.0.0.1:20128` is treated as "local" and gets **unauthenticated** full proxy access to all provider credentials (`src/dashboardGuard.js:136`). Remote callers via Traefik correctly require an API key. | Mitigated by **deploy config**: loopback-bind the port (only Traefik reaches it) + `REQUIRE_API_KEY=true`. |
+| 2 | 🟠 HIGH | Any caller reaching `127.0.0.1:20128` is treated as "local" and gets **unauthenticated** full proxy access to all provider credentials (`src/dashboardGuard.js:136`). Remote callers via Traefik correctly require an API key. | **Fixed in source for deployed surfaces** — loopback bypass removed from `/v1*` access in `dashboardGuard.js`. Retained CLI-token-gated local surfaces stay in tree as a merge-hygiene compromise but are inaccessible in the current Docker deployment (machine-ID mismatch between host and container). `REQUIRE_API_KEY=true` remains recommended as defense in depth. |
 | 3 | 🟠 HIGH | Hardcoded Google Analytics (`G-LC959F603F`) loaded on every dashboard page, no env toggle (`src/app/layout.js`). | **Fixed in source** — GA import + element removed; `@next/third-parties` dropped from deps. |
 | 4 | 🟠 HIGH | cloudflared binary auto-downloaded from GitHub at boot, unconditionally (even with tunnels disabled), no checksum/signature verify (`src/shared/services/initializeApp.js:79` → `src/lib/tunnel/cloudflare/cloudflared.js`). | **Fixed in source** — entire tunnel subsystem removed (cloudflared + tailscale): `src/lib/tunnel/`, `src/app/api/tunnel/`, `appUpdater.js`, `/api/version/update`. The edge router's own Cloudflare tunnel (separate `cloudflared` service in the deployment repo) is unrelated. |
 | 5 | 🟠 HIGH | SSRF guard is string-only — no DNS resolution / IP-pinning, so DNS-rebinding, 302-redirects, decimal-IP (`2130706433`), and some IPv6 forms bypass it (`src/shared/utils/ssrfGuard.js`). Applies to the auth-gated web-fetch tool (`src/sse/handlers/fetch.js`). | **Accepted / mitigated by config** — gated behind `REQUIRE_API_KEY=true` + don't expose the proxy to untrusted clients + egress-filter the router. No source fix yet. |
 | 6 | 🟡 MED | Provider access/refresh tokens + API keys stored **plaintext** in SQLite `providerConnections.data`; DB export returns them in clear (`src/lib/db/repos/connectionsRepo.js`). | **Accepted** — treat the `9router-data` volume and any DB export as secret material (disk encryption / restrictive perms). No app-level at-rest encryption exists. |
 | 7 | 🟡 MED | `API_KEY_SECRET` / `MACHINE_ID_SALT` ship as known default strings in `.env.example`. (Not directly forgeable — keys are validated by DB lookup, not CRC — but should be unique.) | Mitigated by **deploy config**: set unique values. |
 
-| 8 | 🟡 MED | `ChangelogModal.js` fetched `CHANGELOG.md` from **upstream** `decolua/9router` master and rendered it via `dangerouslySetInnerHTML` without sanitization. A compromised upstream repository could inject arbitrary JS into the admin dashboard session. | **Fixed in source** — URL changed to this fork's `hardened` branch (`src/shared/constants/config.js`); output filtered for `<script>` tags and inline event handlers before rendering (`ChangelogModal.js`). |
+| 8 | 🟡 MED | `ChangelogModal.js` fetched `CHANGELOG.md` from **upstream** `decolua/9router` master and rendered it via `dangerouslySetInnerHTML` without sanitization. A compromised upstream repository could inject arbitrary JS into the admin dashboard session. | **Fixed in source** — `ChangelogModal.js` and `changelogUrl` were deleted entirely. Review changelog/history on GitHub instead of fetching and rendering remote markdown in the dashboard. |
 | 9 | 🟢 LOW | `src/app/api/oauth/cursor/auto-import/route.js` sqlite3 CLI fallback (lines 143, 158) built queries via string interpolation (`WHERE key='${key}'`). Keys come from hardcoded arrays so not user-controlled, but the pattern violates parameterization principles. | **Fixed in source** — single quotes in key values are now escaped with standard SQL doubling (`key.replace(/'/g, "''")`) before interpolation. The primary better-sqlite3 path already uses `?` placeholders. |
 
 ### Cleared (no action needed)
@@ -71,6 +71,24 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
   gate tightened: requires `currentPassword`, validates against `INITIAL_PASSWORD`. Dead
   `reset-password` route and CLI surface deleted. All recovery strings aligned across API
   errors, lockout hint, and on-page help. (Finding 1, GAP-3)
+- **Zero-trusted deployed `/v1*` surfaces** — removed the loopback bypass from
+  `dashboardGuard.js` so `/v1`, `/v1beta`, `/api/v1`, `/api/v1beta`, and `/codex` no longer gain
+  unauthenticated access from localhost-looking requests. `requireLogin` is now immutable to
+  `true` in `src/app/api/settings/route.js`, so the dashboard/admin API cannot be opened by
+  flipping the runtime toggle off. The current public-deployment auth contract is JWT for
+  dashboard/admin, API key for `/v1*`. A dormant CLI-token path remains in tree for merge
+  hygiene but is inaccessible in the current Docker deployment. (Finding 2)
+- **Removed changelog remote-render XSS surface** — `src/shared/components/ChangelogModal.js`,
+  `src/shared/constants/config.js` `changelogUrl`, and all imports were deleted instead of
+  preserving a fetch-and-render path for remote markdown. (Finding 8)
+- **Removed DB export/import web surface completely** — `src/app/api/settings/database/route.js`
+  deleted, the `ALWAYS_PROTECTED` guard entry removed, and the profile-page export/import UI and
+  `src/lib/localDb.js` re-exports stripped. Filesystem/SQLite access still contains the same
+  secrets and is treated as deployment-level secret material. (Finding 1, Finding 6)
+- **Restored request-log header masking** — `open-sse/utils/requestLogger.js` once again truncates
+  `Authorization`, `x-api-key`, `cookie`, and token-like headers before writing request logs to
+  disk. This removes provider-token leakage from request-log files, but request/response bodies
+  remain plaintext when `ENABLE_REQUEST_LOGS=true`. (Operational note below.)
 - **Deleted stale readmes** — `i18n/` (4 localized READMEs), `README.zh-CN.md`, `cli/README.md`,
   `skills/README.md` all carried upstream `9router.com`/`decolua` references and are not
   maintained for this fork. (GAP-12)
@@ -112,10 +130,6 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
   unconditional `ensureCloudflared()` call at startup. (Finding 4) The edge router's own Cloudflare
   tunnel (separate `cloudflared` service in the deployment repo) is unrelated to this.
 
-- **Changelog XSS fix** — `ChangelogModal.js` was fetching `CHANGELOG.md` from the upstream `decolua/9router`
-  master branch and rendering it unsanitized via `dangerouslySetInnerHTML`. Changed the URL to this fork's
-  `hardened` branch (`src/shared/constants/config.js`) and added a `<script>`/inline-handler strip before
-  rendering. (Finding 8)
 - **Cursor auto-import SQL escaping** — sqlite3 CLI fallback in
   `src/app/api/oauth/cursor/auto-import/route.js` used string interpolation for SQL queries; switched to
   single-quote escaping (`key.replace(/'/g, "''")`). Keys are hardcoded so not exploitable, but now
@@ -129,9 +143,55 @@ Additional regression tests in `tests/unit/auth-login.test.js` (10 cases) and
 `tests/unit/settings-password.test.js` (7 cases) cover the bootstrap password flow,
 `mustChangePassword` logic, rate limiting, and first-time/already-set password changes.
 
+## Public deployment posture
+
+The current supported public-deployment posture for this fork is:
+
+- **JWT** for dashboard/admin routes
+- **API key** for `/v1*` model/API routes
+- loopback/Host-based trust removed from deployed `/v1*` access
+- `requireLogin` locked to `true` for public deployments
+
+There is one explicit compromise: CLI-token-gated local surfaces remain in tree to reduce
+downstream merge burden, but they are **not** part of the supported public-exposure model.
+In the current Docker deployment they are inaccessible because the machine-ID-derived token does
+not match between host and container. See [`docs/PUBLIC-EXPOSURE-PLAN.md`](PUBLIC-EXPOSURE-PLAN.md)
+for the tactical rationale and deferred follow-ups.
+
+## Accepted residual risks
+
+- **SSRF guard remains string-only** — no DNS resolution or IP-pinning yet. Accepted because the
+  web-fetch tool is API-key-gated and the deployment is not exposed to untrusted multi-user
+  traffic. Revisit before any broader public or shared deployment.
+- **`/api/auth/status` leaks minor auth-state metadata** — `hasPassword`, `authMode`, and
+  `oidcConfigured` remain public for login-page UX. Accepted as low-value recon in the current
+  single-user deployment.
+- **No server-side JWT invalidation** — logout clears the cookie only; rotating `JWT_SECRET`
+  remains the kill switch.
+- **Prompt/response data is still stored when observability/logging are enabled** — request-log
+  header masking removes provider-token leakage, but `ENABLE_REQUEST_LOGS=true` still writes
+  plaintext request/response bodies to `logs/`. Separately, SQLite observability stores full
+  request history in `requestDetails` when `enableObservability` is enabled (default). Treat the
+  container volume as secret material.
+
+## Test gate policy
+
+The full upstream test suite has many pre-existing failures inherited from upstream master. This
+fork does **not** gate CI on the entire suite.
+
+Current policy:
+
+- CI gates on a narrow security-relevant subset (currently 5 files / 66 tests)
+- widen the gate file-by-file only when we adopt and maintain those tests in this fork
+- treat broad-suite failures as upstream debt unless they reveal a real production bug we care
+  about in this fork
+
+Detailed failure categories, baseline numbers, and recommended triage order live in
+[`docs/TEST-TRIAGE.md`](TEST-TRIAGE.md).
+
 ## Automated re-check
 
-Run `scripts/upstream-recheck.sh` after every upstream sync — 13 structural + text checks
+Run `scripts/upstream-recheck.sh` after every upstream sync — 15 structural + text checks
 covering all checklist items and the new invariants:
 
 ```bash
@@ -164,8 +224,8 @@ previously reviewed upstream commit and re-verify each item; update the "Reviewe
    static documentation served to AI agents; check for new API instructions that expose endpoints or
    auth flows not previously documented, and confirm no skill file embeds executable content or external
    URLs beyond `localhost:20128`.
-9. **Changelog URL** — `src/shared/constants/config.js` `changelogUrl` must point to `mihado/9router`
-   `hardened` branch, not upstream master. Re-check after any config sync.
+9. **Changelog surface** — confirm `src/shared/components/ChangelogModal.js` stays deleted and no new
+   remote markdown fetch + `dangerouslySetInnerHTML` path was introduced in its place.
 10. **Lockfile + build** — `pnpm install --frozen-lockfile` still clean; `docker build` succeeds; review any
     new/changed dependencies in the Dependabot/lockfile diff.
 11. **Tunnel re-introduced** — confirm `src/lib/tunnel/` and `src/app/api/tunnel/` stay deleted; no new
@@ -175,3 +235,6 @@ previously reviewed upstream commit and re-verify each item; update the "Reviewe
 13. **Stale readmes re-introduced** — confirm `i18n/`, `README.zh-CN.md`, `cli/README.md`,
     `skills/README.md` stay deleted.
 14. **`.env.example` / `docker-compose.yml`** — no upstream `9router.com` or `decolua` image refs.
+15. **Request logging** — `open-sse/utils/requestLogger.js` still masks auth headers before writing logs;
+    if upstream changes logging behavior, re-check that enabling `ENABLE_REQUEST_LOGS` does not leak
+    provider tokens in plaintext headers.
