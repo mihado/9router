@@ -6,38 +6,49 @@ format translation, quota tracking, multi-account support, and automatic tier fa
 
 > **Hardened downstream fork** of [`decolua/9router`](https://github.com/decolua/9router).
 > Security review, the changes made, and the upstream-sync re-check checklist live in
-> [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md); fork/agent rules in [`AGENTS.md`](AGENTS.md).
+> [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md); public-exposure follow-ups in
+> [`docs/PUBLIC-EXPOSURE-PLAN.md`](docs/PUBLIC-EXPOSURE-PLAN.md); inherited test-suite triage in
+> [`docs/TEST-TRIAGE.md`](docs/TEST-TRIAGE.md); fork/agent rules in [`AGENTS.md`](AGENTS.md).
 > Built and published **only from the `hardened` branch** to `ghcr.io/mihado/9router`.
 
 ---
 
 ## This fork
 
-Security-hardening changes for this downstream fork. Full review, findings table, and
-the upstream-sync re-check checklist live in [docs/SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md).
+Security-hardening changes for this downstream fork.
 
-**Egress & beacons removed**
+Doc map:
+- `docs/SECURITY-REVIEW.md` — findings table, fixes vs accepted risks, public-deployment posture, upstream-sync checklist.
+- `docs/PUBLIC-EXPOSURE-PLAN.md` — tactical follow-ups and deferred hardening work for publicly routable deployment.
+- `docs/TEST-TRIAGE.md` — inherited upstream test failures and the narrow CI-gate rationale.
+
+### What changed in this fork
+
+**Authentication & exposure**
+- Removed the loopback trust shortcut for deployed `/v1*` access. Public/API surfaces now rely on explicit auth at the guard layer.
+- Locked `requireLogin` to `true` for public deployments. No runtime toggle that can open the dashboard/admin API.
+- No `"123456"` default password. `INITIAL_PASSWORD` is mandatory for bootstrap login and immediately forces a permanent password set.
+- Removed the DB export/import web surface and related dashboard UI. Filesystem/SQLite access still contains the same secret material and is treated as deployment-level sensitive state.
+
+**Egress & remote content removed**
 - Removed hardcoded Google Analytics beacon (`src/app/layout.js`; dropped `@next/third-parties`).
 - Removed entire tunnel subsystem (`src/lib/tunnel/`, `src/app/api/tunnel/`) — cloudflared binary
   download/spawn, quick-tunnel, tailscale install/connect/funnel, and `/api/version/update`.
   `initializeApp.js` rewritten from 286 to 70 lines.
 - Removed donate button and its egress to `9router.com/api/donate` (`Header.js`, `DonateModal.js`).
-- Pointed `changelogUrl` at this fork's `hardened` branch; strip `<script>` before
-  `dangerouslySetInnerHTML` render (`ChangelogModal.js`).
+- Removed the changelog modal and its remote markdown fetch + `dangerouslySetInnerHTML` path entirely.
 - Removed in-app update/shutdown action that would install `decolua/9router` from npm;
   `appUpdater.js` deleted. Informational banner links to this fork for manual sync.
 - Updated skill cross-references from `decolua/9router master` to `mihado/9router hardened`.
   Deleted stale localized READMEs (`i18n/`, `README.zh-CN.md`, `cli/README.md`, `skills/README.md`).
 
-**Authentication hardened**
-- No `"123456"` default password — `INITIAL_PASSWORD` is mandatory. Bootstrap login forces a
-  permanent password set with server-driven `mustChangeHint`. Login page no longer discloses a
-  default. Dead `reset-password` route and CLI surface removed. Regression tests in
-  `tests/unit/auth-login.test.js` + `tests/unit/settings-password.test.js`.
+**Operational hardening**
+- Request-log header masking restored in `open-sse/utils/requestLogger.js`. If `ENABLE_REQUEST_LOGS=true`, provider auth headers are scrubbed before writing to disk, but prompt/response bodies still remain plaintext by design.
 - `.env.example` `CLOUD_URL` uses a placeholder instead of `9router.com`.
 - `docker-compose.yml` points at `ghcr.io/mihado/9router:hardened`.
+- Runtime hardening lives in the deployment repo: strong `INITIAL_PASSWORD`, `REQUIRE_API_KEY=true`, `AUTH_COOKIE_SECURE=true`, unique `JWT_SECRET` / `API_KEY_SECRET` / `MACHINE_ID_SALT`, loopback-bound port.
 
-**Code fixes**
+**Functional fixes we kept**
 - `noAuth` free providers (mimo-free, opencode) were permanently active — `auth.js` injected a virtual connection unconditionally and the UI never rendered a toggle. Added `disabledFreeProviders` to the settings blob; `auth.js` returns `null` when listed; dashboard now renders a proper toggle; usage page filters them consistently.
 - Escape single quotes in the sqlite3 CLI fallback queries in the Cursor auto-import route (primary `better-sqlite3` path already uses `?` placeholders).
 - `/v1/models` returned bare IDs with no capability metadata, breaking downstream SDK auto-detection (vision, tools, reasoning all defaulted to false). Now every model entry carries a full `capabilities` object resolved via a 4-tier fallback (provider override → exact match → glob pattern → defaults). Combos aggregate from their constituent models (vision/search = union; tools = intersection; reasoning = primary model; contextWindow = min; maxOutput = max). Capability data fixes: MiMo V2.5 `<think>`-tag reasoning, Qwen max vision, MiniMax M2.x vision.
@@ -49,10 +60,12 @@ the upstream-sync re-check checklist live in [docs/SECURITY-REVIEW.md](docs/SECU
 - CI publishes only to GHCR, only from `hardened`, with a hard guard against any other ref; drop upstream Docker Hub push.
 - Enable Dependabot for npm / github-actions / docker, targeting `hardened`.
 
-**Documentation**
-- `docs/SECURITY-REVIEW.md` — findings table (CRIT→LOW), what was fixed vs. accepted, upstream-sync re-check checklist.
+**Documentation & process**
+- `docs/SECURITY-REVIEW.md` — findings table (CRIT→LOW), what was fixed vs. accepted, public-deployment posture, upstream-sync re-check checklist.
+- `docs/PUBLIC-EXPOSURE-PLAN.md` — tactical follow-ups for further public hardening.
+- `docs/TEST-TRIAGE.md` — inherited upstream test failures and why CI gates on a narrow security subset.
 - `AGENTS.md` / `CLAUDE.md` — fork rules and context for agents working in this repo.
-- `scripts/upstream-recheck.sh` — automated re-check (13 items, ast-grep + ripgrep). Run on every upstream sync.
+- `scripts/upstream-recheck.sh` — automated re-check (15 items, ast-grep + ripgrep). Run on every upstream sync.
 - Reviewed at upstream `v0.5.15` (commit `0b3c794`); clean checklist pass.
 
 ---
@@ -112,7 +125,7 @@ Data persists at `9router-data:/app/data` (SQLite). `.env` is not baked into the
 | `MACHINE_ID_SALT` | `endpoint-proxy-salt` | Salt for stable machine ID hashing. Set a unique value. |
 | `REQUIRE_API_KEY` | `false` | Enforce Bearer API key on `/v1/*` (recommended for any exposed deploy). |
 | `AUTH_COOKIE_SECURE` | `false` | Force `Secure` auth cookie (set `true` behind an HTTPS reverse proxy). |
-| `ENABLE_REQUEST_LOGS` | `false` | Write request/response logs under `logs/` (plaintext — keep off). |
+| `ENABLE_REQUEST_LOGS` | `false` | Write request/response logs under `logs/`; auth headers are masked, but prompt/response bodies remain plaintext. Enable only if you want that forensic trail. |
 | `BASE_URL` / `CLOUD_URL` / `NEXT_PUBLIC_CLOUD_URL` | `http://localhost:20128` / *placeholder* | Server-side base + cloud-sync URLs (cloud sync is opt-in, off by default). Change `CLOUD_URL` placeholder in `.env.example` before use. |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | empty | Optional outbound proxy for upstream provider calls (lowercase variants supported). |
 

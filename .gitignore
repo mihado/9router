@@ -52,6 +52,8 @@ source/*
 docs/*
 !docs/ARCHITECTURE.md
 !docs/SECURITY-REVIEW.md
+!docs/PUBLIC-EXPOSURE-PLAN.md
+!docs/TEST-TRIAGE.md
 !docs/UPSTREAM-PATCH-GUIDE.md
 test/*
 open-sse/test/*
