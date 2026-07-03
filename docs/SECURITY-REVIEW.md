@@ -7,6 +7,8 @@ the changes we made, the risks we accepted, and — most importantly — the **c
 we sync from upstream**.
 
 > Review date: 2026-07-01 · Reviewed at upstream version `0.5.15` (commit `0b3c794`). Last hardened: 2026-07-01.
+> Re-checked: 2026-07-03, rebased onto upstream `0.5.18` (commit `7f436e2`). No regressions found — see
+> "Upstream-sync re-check log" below.
 
 ## Why a fork
 
@@ -181,7 +183,7 @@ fork does **not** gate CI on the entire suite.
 
 Current policy:
 
-- CI gates on a narrow security-relevant subset (currently 5 files / 66 tests)
+- CI gates on a narrow security-relevant subset (currently 5 files / 68 tests)
 - widen the gate file-by-file only when we adopt and maintain those tests in this fork
 - treat broad-suite failures as upstream debt unless they reveal a real production bug we care
   about in this fork
@@ -238,3 +240,41 @@ previously reviewed upstream commit and re-verify each item; update the "Reviewe
 15. **Request logging** — `open-sse/utils/requestLogger.js` still masks auth headers before writing logs;
     if upstream changes logging behavior, re-check that enabling `ENABLE_REQUEST_LOGS` does not leak
     provider tokens in plaintext headers.
+
+## Upstream-sync re-check log
+
+### 2026-07-03 — rebase onto upstream `0.5.15` → `0.5.18` (`0b3c794` → `7f436e2`)
+
+Ran `./scripts/upstream-recheck.sh --diff 0b3c794`: all 10 automated checks passed. Manually
+cleared the 3 checks the script can't automate:
+
+- **SSRF guard (#4)** — `src/shared/utils/ssrfGuard.js` untouched by the upstream delta; still
+  string-only, no new user-controlled-URL fetch site bypasses it.
+- **Auth surface (#7)** — `src/dashboardGuard.js` untouched. New/changed routes in the delta
+  (`GET` added to `codex-reset-credits`, new `clinepass` OAuth provider) all fall under existing
+  `/api/*` and `/api/oauth/*` allowlist patterns; no new unauthenticated route.
+- **Lockfile + build (#10)** — `pnpm install --frozen-lockfile` clean (no lockfile drift, no new
+  dependencies — only version bumps in `package.json`/`cli/package.json`); `docker build .`
+  succeeded end-to-end.
+
+Also manually reviewed the upstream delta (`git diff <pre-rebase-hardened-tip>..HEAD`, 70 files)
+for anything the script doesn't cover:
+
+- `fix(mitm): generate root ca on server startup` (#2228) — `src/mitm/server.js` now
+  auto-generates the Root CA (`src/mitm/cert/rootCA.js`) if missing, instead of exiting. Confined
+  to the already-opt-in path: `initializeApp.js` only spawns `mitm/server.js` when
+  `settings.mitmEnabled` is true, which stays default-off. Not a boot-time or default-on change.
+- New `clinepass` provider (OAuth + API key) — static registry entry, no `noAuth`, no hardcoded
+  secrets, routed through the existing OAuth flow (`randomBytes` state, standard token exchange).
+  Same shape as existing providers.
+- `providers/route.js` dropped the "one connection per compatible node" restriction — intentional
+  product change (key-pool support), not an auth change; route is still behind the same auth gate.
+- `connectionsRepo.js` cross-IdP dedup fix, `bypassHandler.js` usage-merge fix, `validate/route.js`
+  added a fetch timeout — all bug fixes, no new egress or auth-relevant surface.
+- `requestLogger.js` header masking and `.env.example`/`docker-compose.yml` fork pointers
+  untouched by the delta — still correct.
+- CI security-test subset (`unit/dashboard-guard`, `auth-login`, `settings-password`,
+  `buildOutputFilter`, `free-provider-toggle`) run manually from `tests/`: 68/68 pass (doc
+  previously said "5 files / 66 tests" — now 68; update test-count references opportunistically).
+
+No source changes required. Updated "Reviewed at" version above.
