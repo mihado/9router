@@ -1,6 +1,10 @@
 # Docker
 
-Run 9Router in a container. Published image: [`decolua/9router`](https://hub.docker.com/r/decolua/9router) — multi-platform `linux/amd64` + `linux/arm64`.
+Run this hardened fork in a container. Published image:
+[`ghcr.io/mihado/9router:hardened`](https://github.com/mihado/9router/pkgs/container/9router) —
+built and published **only from the `hardened` branch** (`linux/amd64`). See
+[AGENTS.md](AGENTS.md) / [docs/SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md) before pulling upstream
+`decolua/9router` images — they have not been through this fork's review.
 
 ---
 
@@ -10,14 +14,16 @@ Run 9Router in a container. Published image: [`decolua/9router`](https://hub.doc
 
 ```bash
 docker run -d \
-  -p 20128:20128 \
-  -v "$HOME/.9router:/app/data" \
-  -e DATA_DIR=/app/data \
   --name 9router \
-  decolua/9router:latest
+  -p 127.0.0.1:20128:20128 \
+  -v 9router-data:/app/data \
+  --env-file .env \
+  ghcr.io/mihado/9router:hardened
 ```
 
-App listens on port `20128`. Open: http://localhost:20128
+`INITIAL_PASSWORD` and `JWT_SECRET` must be set in `.env` before the dashboard is reachable — see
+`.env.example` and the environment variable table in [README.md](README.md). App listens on port
+`20128`: http://localhost:20128
 
 ## Manage container
 
@@ -31,53 +37,37 @@ docker rm -f 9router          # remove
 ## Data persistence
 
 ```bash
--v "$HOME/.9router:/app/data" \
--e DATA_DIR=/app/data
+-v 9router-data:/app/data
 ```
 
-Without `DATA_DIR`, the app falls back to `~/.9router/` (macOS/Linux) or `%APPDATA%\9router\` (Windows). In the container, `DATA_DIR=/app/data` makes the bind mount work.
-
-Data layout under `$DATA_DIR/`:
+Data layout under `/app/data/`:
 
 ```text
-$DATA_DIR/
+/app/data/
 ├── db/
 │   ├── data.sqlite       # main SQLite database
 │   └── backups/          # auto backups
 └── ...                   # certs, logs, runtime configs
 ```
 
-Host path: `$HOME/.9router/db/data.sqlite`
-Container path: `/app/data/db/data.sqlite`
-
-## Optional env vars
-
-```bash
-docker run -d \
-  -p 20128:20128 \
-  -v "$HOME/.9router:/app/data" \
-  -e DATA_DIR=/app/data \
-  -e PORT=20128 \
-  -e HOSTNAME=0.0.0.0 \
-  -e DEBUG=true \
-  --name 9router \
-  decolua/9router:latest
-```
+Container path: `/app/data/db/data.sqlite`. Treat this volume as secret material — it contains
+plaintext provider OAuth tokens and API keys (see `docs/SECURITY-REVIEW.md`, Finding 6).
 
 ## Optional Headroom sidecar
 
-The 9Router image does not bundle Python or Headroom. To use Headroom in Docker, run it as a separate service and point 9Router at that proxy:
+`docker-compose.yml` at the repo root already wires this up. To run it manually:
 
 ```yaml
 services:
   9router:
-    image: decolua/9router:latest
+    image: ghcr.io/mihado/9router:hardened
     ports:
-      - "20128:20128"
+      - "127.0.0.1:20128:20128"
     volumes:
-      - "$HOME/.9router:/app/data"
+      - 9router-data:/app/data
+    env_file:
+      - .env
     environment:
-      DATA_DIR: /app/data
       HEADROOM_URL: http://headroom:8787
     depends_on:
       - headroom
@@ -86,19 +76,51 @@ services:
     image: ghcr.io/chopratejas/headroom:latest
     ports:
       - "8787:8787"
+
+volumes:
+  9router-data:
 ```
 
-In the dashboard, open `Endpoint` → `Token Saver` → `Headroom`, confirm the URL is `http://headroom:8787`, recheck status, then enable Headroom.
+In the dashboard, open `Endpoint` → `Token Saver` → `Headroom`, confirm the URL is
+`http://headroom:8787`, recheck status, then enable Headroom.
 
-If Headroom runs on the Docker host instead of as a sidecar, use `http://host.docker.internal:8787` on macOS/Windows. On Linux, add `--add-host=host.docker.internal:host-gateway` or the equivalent compose `extra_hosts` entry.
+If Headroom runs on the Docker host instead of as a sidecar, use `http://host.docker.internal:8787`
+on macOS/Windows. On Linux, add `--add-host=host.docker.internal:host-gateway` or the equivalent
+compose `extra_hosts` entry.
 
 ## Update to latest
 
 ```bash
-docker pull decolua/9router:latest
+docker compose pull 9router
+docker compose up -d 9router
+```
+
+Or without compose:
+
+```bash
+docker pull ghcr.io/mihado/9router:hardened
 docker rm -f 9router
 # re-run the quick start command
 ```
+
+## Rollback
+
+Every image build is pushed under three tags: the moving `hardened` tag, a short-SHA tag
+(`ghcr.io/mihado/9router:<short-sha>`), and a date-SHA tag (`ghcr.io/mihado/9router:YYYYMMDD-<sha>`).
+Find the last known-good build in the
+[package versions list](https://github.com/mihado/9router/pkgs/container/9router/versions) or
+`git log --oneline hardened`, then pin to it:
+
+```bash
+docker pull ghcr.io/mihado/9router:<short-sha>
+docker compose stop 9router
+# edit docker-compose.yml (or your deploy config) to pin image: ghcr.io/mihado/9router:<short-sha>
+docker compose up -d 9router
+```
+
+No database migration rollback is provided — SQLite schema changes in this project are additive.
+If a bad build wrote data in an incompatible shape, restore from `${DATA_DIR}/db/backups/` instead
+of only rolling back the image.
 
 ---
 
@@ -107,26 +129,18 @@ docker rm -f 9router
 ## Build image locally (test)
 
 ```bash
-cd app && docker build -t 9router .
+docker build -t 9router .
 
 docker run --rm -p 20128:20128 \
-  -v "$HOME/.9router:/app/data" \
+  -v 9router-data:/app/data \
   -e DATA_DIR=/app/data \
   9router
 ```
 
 ## Publish (automatic via CI)
 
-Push a git tag `v*` → GitHub Actions builds multi-platform (amd64+arm64) and pushes to:
-- `ghcr.io/decolua/9router:v{version}` + `:latest`
-- `decolua/9router:v{version}` + `:latest`
-
-```bash
-# Use scripts/release.js (recommended)
-node scripts/release.js "Release title" "Notes"
-
-# Or manually
-git tag v0.4.x && git push origin v0.4.x
-```
-
-Workflow: `app/.github/workflows/docker-publish.yml`
+Every push to the `hardened` branch triggers `.github/workflows/docker-publish.yml`, which runs the
+security-relevant unit test subset, then builds and pushes to `ghcr.io/mihado/9router` only. There is
+no tag-triggered release flow and no Docker Hub push — the workflow hard-fails on any ref other than
+`refs/heads/hardened`. See `docs/SECURITY-REVIEW.md` for the upstream-sync re-check that must be run
+before merging any upstream changes into `hardened`.

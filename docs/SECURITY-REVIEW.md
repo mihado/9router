@@ -9,6 +9,8 @@ we sync from upstream**.
 > Review date: 2026-07-01 · Reviewed at upstream version `0.5.15` (commit `0b3c794`). Last hardened: 2026-07-01.
 > Re-checked: 2026-07-03, rebased onto upstream `0.5.18` (commit `7f436e2`). No regressions found — see
 > "Upstream-sync re-check log" below.
+> Ship-readiness pass: 2026-07-04 — added security response headers, fixed stale `DOCKER.md`,
+> ran `pnpm audit` and the observability sweep recorded under "Accepted residual risks" below.
 
 ## Why a fork
 
@@ -119,6 +121,23 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
   No new API surface: `PATCH /api/settings` already existed and strips protected keys; the new
   `disabledFreeProviders` array is an ordinary settings payload.
 
+- **Added security response headers** — `next.config.mjs` `headers()` now sets `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, and `Referrer-Policy: same-origin` repo-wide. The JWT-cookie
+  dashboard previously shipped with no framing protection (clickjackable) and no MIME-sniffing
+  protection; neither header affects the Bearer/API-key `/v1*`, `/v1beta*`, `/codex` routes since
+  those are called via `fetch()`, not browser `<iframe>` embedding. A locked-down CSP was
+  considered but deferred — Monaco, Recharts, and React Flow need browser verification before a
+  strict `script-src`/`style-src` can be set without breaking the dashboard. (ship-ready review,
+  2026-07-04)
+- **Fixed stale `DOCKER.md`** — the fork's docker-compose.yml and README were repointed at
+  `ghcr.io/mihado/9router:hardened` during the initial hardening pass, but `DOCKER.md` was missed
+  and still told users to `docker pull decolua/9router:latest` (the unreviewed upstream image) and
+  described the old tag-triggered Docker Hub publish flow. `scripts/upstream-recheck.sh` explicitly
+  excludes `DOCKER.md` from its stale-reference scan (grouped with `README.md`/`AGENTS.md`, which
+  intentionally keep one attribution reference), which is why the automated check never caught it.
+  Rewrote `DOCKER.md` to match the current image, CI trigger (push to `hardened`, not git tags), and
+  added a rollback section using the short-SHA / date-SHA tags CI already produces. (ship-ready
+  review, 2026-07-04)
 - **Removed Google Analytics** — `src/app/layout.js`; dropped `@next/third-parties` dependency. (Finding 3)
 - **Build switched to pnpm with a committed `pnpm-lock.yaml`** and `--frozen-lockfile`, for reproducible,
   pinned builds (upstream used `npm install` with no lockfile). `node-linker=hoisted` (`.npmrc`) so the
@@ -175,6 +194,20 @@ for the tactical rationale and deferred follow-ups.
   plaintext request/response bodies to `logs/`. Separately, SQLite observability stores full
   request history in `requestDetails` when `enableObservability` is enabled (default). Treat the
   container volume as secret material.
+- **`pnpm audit --prod` (2026-07-04): 17 findings, 3 low / 14 moderate, none critical/high.** All in
+  transitive deps: `dompurify` (bundled inside `monaco-editor`, used for its own hover-widget markdown
+  rendering — not the app's XSS sanitizer) and `postcss` (build-time CSS stringification, not
+  reachable at runtime). No fix available yet without bumping `monaco-editor`/`next` past what's
+  pinned. Track and bump opportunistically with the `minimumReleaseAge` cooldown; not a release
+  blocker for a single-admin-user deployment.
+- **No correlation ID across the proxy request path** — `docker logs` output and the dashboard's
+  `requestDetails` rows can't be joined by ID; matching a log line to a dashboard entry is manual
+  (timestamp + model + provider). Several `.catch(() => {})` sites in the hot path
+  (`open-sse/handlers/chatCore.js` and friends) also mean a request-log write failure is invisible.
+  Logging throughout `open-sse/`/`src/sse/` is freeform `console.log` strings, not structured JSON.
+  None of this is a vulnerability, but it means diagnosing a production issue currently means reading
+  raw container logs and eyeballing the Usage page side by side. Worth a follow-up pass if incident
+  frequency ever justifies it; not addressed in this review to keep the diff scoped to security.
 
 ## Test gate policy
 
