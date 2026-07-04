@@ -33,6 +33,22 @@ const nextConfig = {
     // Cache fetch responses across HMR refreshes for faster dev reloads.
     serverComponentsHmrCache: true,
   },
+  async headers() {
+    // Framing/sniffing protection for the JWT-cookie dashboard. Applied
+    // repo-wide since neither header affects fetch()/Bearer-token API
+    // clients on /v1*, /v1beta*, /codex — only browser <iframe> embedding
+    // and MIME sniffing, which this app doesn't rely on anywhere.
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "same-origin" },
+        ],
+      },
+    ];
+  },
   webpack: (config, { isServer }) => {
     // Ignore fs/path modules in browser bundle
     if (!isServer) {
