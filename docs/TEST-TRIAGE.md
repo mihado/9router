@@ -2,6 +2,17 @@
 
 Date: 2026-07-01
 
+> **2026-07-08 update:** after rebasing onto upstream `0.5.20` via the `capabilities` feature
+> branch, the full suite reports 48 failing tests (1242 total). Verified against an unmodified
+> `capabilities` worktree — same 48 fail identically there, so this is upstream/feature-branch
+> debt, not a fork-introduced regression. `known-fails.txt` (25 entries, curated against the
+> 0.5.15-era baseline below) is now stale — some entries here were fixed upstream, several new
+> failing tests were added with `capabilities`' features (golden fixtures for the `kimchi`/`cline`/
+> `blackbox` providers, `db-concurrent`, `codex-image-fetch`, `combo-autoswitch`). Not re-triaged
+> in full; see `docs/SECURITY-REVIEW.md`'s 2026-07-08 re-check log entry. The CI gate is unaffected
+> — it only runs the narrow 5-file/68-test security subset, not this file's `known-fails.txt`
+> mechanism.
+
 ## Master baseline (`0b3c794`)
 
 Tested upstream master (the commit we forked from, before any of our hardening).

@@ -11,6 +11,8 @@ we sync from upstream**.
 > "Upstream-sync re-check log" below.
 > Ship-readiness pass: 2026-07-04 — added security response headers, fixed stale `DOCKER.md`,
 > ran `pnpm audit` and the observability sweep recorded under "Accepted residual risks" below.
+> Re-checked: 2026-07-08, rebased onto upstream `0.5.20` (commit `b10b807`) via the `capabilities`
+> feature branch. No regressions found — see "Upstream-sync re-check log" below.
 
 ## Why a fork
 
@@ -311,3 +313,81 @@ for anything the script doesn't cover:
   previously said "5 files / 66 tests" — now 68; update test-count references opportunistically).
 
 No source changes required. Updated "Reviewed at" version above.
+
+### 2026-07-08 — rebase onto upstream `0.5.18` → `0.5.20` (`7f436e2` → `b10b807`), via `capabilities`
+
+`capabilities` (a feature branch: model-capability metadata, combo aggregation, kimchi provider) was
+rebased onto upstream `master` first; `hardened`'s 33 commits were then rebased onto `capabilities`.
+Two conflicts, both resolved in favor of this fork's existing conventions:
+
+- `CLAUDE.md` — upstream added its own full `CLAUDE.md` (`008de32`, codebase guidance: commands,
+  architecture, conventions) after this fork had already reduced the file to `@AGENTS.md`. Resolved
+  by keeping `@AGENTS.md` as the first line (fork rules take priority) with upstream's guidance
+  content preserved below it — same pattern already used by the global `~/.claude/CLAUDE.md`.
+- `README.md` — upstream's README grew substantially with marketing content (tutorial videos, star
+  chart, forks list, `decolua/9router` Docker Hub instructions) between 0.5.18 and 0.5.20. Resolved
+  by keeping this fork's condensed README throughout and discarding all upstream additions in
+  conflicted hunks, consistent with Findings #11/#12 (don't reintroduce links/images pointing at
+  upstream).
+
+Ran `./scripts/upstream-recheck.sh --diff 7f436e2`: all 10 automated checks passed. Two informational
+hits from the script, both confirmed benign: `skills/9router-web-fetch/SKILL.md` uses `9router.com` as
+an example URL *value* in a web-fetch curl example (not a call the app makes); `src/app/layout.js`'s
+`dangerouslySetInnerHTML` is a static, argument-free inline script toggling a CSS class on font load
+(unrelated to the already-removed GA/changelog remote-render surfaces).
+
+Manually cleared the 3 checks the script can't automate:
+
+- **SSRF guard (#4)** — `src/shared/utils/ssrfGuard.js` diff is empty; unchanged, still string-only.
+- **Auth surface (#7)** — `src/dashboardGuard.js` zero-trust posture intact (no `isLocalRequest`
+  bypass reintroduced). New in this delta: a **Headroom token-saver** feature
+  (`src/app/api/headroom/{start,stop,proxy}`) — `start` refuses non-loopback URLs outright;
+  `proxy` forwards to an admin-configured `settings.headroomUrl` (not attacker-controlled input) and
+  strips cookies/auth headers when the target isn't loopback; all three routes are gated in
+  `LOCAL_ONLY_PATHS` (CLI-token only, same dormant-surface category as the existing accepted
+  Finding #2 — inaccessible in the current Docker deployment). No new unauthenticated route.
+- **Lockfile + build (#10)** — found and fixed real drift: `pnpm-lock.yaml` still listed a `fs`
+  dependency that upstream had already dropped from `package.json` between 0.5.18 and 0.5.20;
+  regenerated the lockfile (`pnpm install`), `--frozen-lockfile` now clean. `docker build .`
+  succeeded end-to-end both before and after the lockfile fix.
+
+Also reviewed the delta for anything the script doesn't cover:
+
+- `.github/workflows/gitbook-pages.yml` — this file was **removed** by the upstream delta (was
+  pushing to an external `9router.github.io` repo using a deploy-key secret on every push to
+  `main`/`master`); a risk reduction, not a new surface.
+- `.github/workflows/docker-publish.yml` — guard against publishing outside `hardened` and the
+  GHCR-only push are untouched by the upstream delta (this fork's own file).
+- CLI package changes (`cli/cli.js`, `client.js`, `settings.js`, `endpoint.js`) — all fork-internal
+  cleanup carried through the rebase (dead tunnel-stub removal, `123456` reset-password flow
+  removed from the CLI menu); no new external endpoints or telemetry.
+- `open-sse/config/providerModels.js`, `open-sse/handlers/chatCore.js` — model-id normalization
+  fixes only; no new fetch sites or hardcoded credentials.
+
+**Test infra fix (unrelated to the security surface, done while verifying the build):** `tests/`
+was an npm-managed package fully decoupled from the root pnpm install, and its committed `test`
+script hardcoded a stale `/tmp/node_modules` path that doesn't work on a plain checkout. Converted
+`tests` into a proper pnpm workspace member (`pnpm-workspace.yaml`); `pnpm install` from the root
+now covers it, and `Dockerfile` copies `tests/package.json` alongside the root manifests before
+`pnpm install --frozen-lockfile` so the production build can still resolve the workspace (`tests/`
+itself is never copied into the runtime image). `.github/workflows/docker-publish.yml`'s test step
+no longer needs its own `npm install`. `cli/` deliberately stays **outside** this workspace — it's
+published to npm independently and manages its own native-module postinstall isolation.
+
+Ran the CI security-test subset (`unit/dashboard-guard`, `auth-login`, `settings-password`,
+`buildOutputFilter`, `free-provider-toggle`): 68/68 pass. Ran the full suite for comparison: 48
+failing tests (1242 total, up from 1160 at the last re-check — `capabilities` added real tests for
+new features). Verified on an unmodified `capabilities` worktree that all 48 fail identically there
+— pre-existing upstream/feature-branch debt, not introduced by this rebase or the pnpm-workspace
+change. One category worth naming: `golden-url-header.test.js` is data-driven over the provider
+registry, so every new provider needs a matching snapshot commit — upstream's `clinepass` PR
+(`b08751c`) didn't include one (confirmed absent on upstream `master` itself, not just here), the
+same gap this repo already hit once for `kimchi` (`dbb9589`). Running the suite locally
+auto-generates the missing snapshot and passes, so it never shows up in a failure count — deliberately
+**not** patched in this fork; it's an upstream PR-process gap (missing `vitest -u` before merge), not
+something worth carrying fork-side maintenance for. `docs/TEST-TRIAGE.md`'s baseline count is stale
+(25 known-fails from the 0.5.15-era triage);
+noted but not re-triaged here, consistent with the test gate policy below.
+
+No source changes required beyond the lockfile regeneration and the tests-workspace fix above.
+Updated "Reviewed at" version above.
