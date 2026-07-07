@@ -15,8 +15,11 @@ ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
 
 # Install with a frozen lockfile so the build fails loudly on any lockfile drift.
-# pnpm-workspace.yaml carries pnpm 11 settings (build-script allowlist); .npmrc sets node-linker=hoisted.
+# pnpm-workspace.yaml carries pnpm 11 settings (build-script allowlist) and declares the
+# `tests` workspace member; .npmrc sets node-linker=hoisted. tests/package.json must be
+# present for pnpm to resolve the workspace, even though tests/ never ships in the image.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY tests/package.json ./tests/
 RUN --mount=type=cache,target=/pnpm/store \
   pnpm install --frozen-lockfile
 

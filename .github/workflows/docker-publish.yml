@@ -52,8 +52,9 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_tests != true }}
         working-directory: tests
         run: |
-          npm install
-          # Security-adjacent tests only. The full suite has ~20 pre-existing
+          # `tests` is a pnpm workspace member (pnpm-workspace.yaml), so the root
+          # `pnpm install --frozen-lockfile` step above already covers it.
+          # Security-adjacent tests only. The full suite has ~48 pre-existing
           # failures (missing chalk, snapshot drift, security-audit mismatches)
           # tracked separately; gating on those blocks every push. This subset
           # covers the auth/guard surface touched by hardening commits.
