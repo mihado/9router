@@ -13,6 +13,10 @@ we sync from upstream**.
 > ran `pnpm audit` and the observability sweep recorded under "Accepted residual risks" below.
 > Re-checked: 2026-07-08, rebased onto upstream `0.5.20` (commit `b10b807`) via the `capabilities`
 > feature branch. No regressions found — see "Upstream-sync re-check log" below.
+> Re-checked: 2026-07-11, rebased onto upstream `0.5.30` (commit `9845a17`) via the `capabilities`
+> feature branch — a much larger jump (3 releases, 131 files). Two source fixes required
+> (pxpipe/headroom local-only gating, search-provider SSRF guard) — see "Upstream-sync re-check log"
+> below and Findings #13/#14.
 
 ## Why a fork
 
@@ -56,6 +60,8 @@ real issues are insecure defaults and always-on egress beacons — addressed bel
 | 10 | 🟡 MED | Sidebar polled `npm install -g 9router@latest` update banner and offered an in-app "Copy & Shutdown" action pointing at the upstream npm package (`decolua/9router`), not this fork. Clicking it would install unreviewed upstream code. (`src/shared/components/Sidebar.js`, `src/lib/appUpdater.js`) | **Fixed in source** — removed all update-action UI and handlers; `appUpdater.js` deleted. npm version check retained as an informational banner that links to `mihado/9router hardened` branch for manual sync. |
 | 11 | 🟢 LOW | Skills dashboard raw URLs pointed at upstream `decolua/9router master`; landing page GitHub links also pointed at upstream. (`src/shared/constants/skills.js`, `src/app/landing/`) | **Fixed in source** — `REPO`/`BRANCH` in `skills.js` updated to `mihado/9router` / `hardened`; landing page links updated. All skill cross-references in `skills/*/SKILL.md` updated to `mihado/9router hardened`. Stale localized READMEs (`i18n/`, `README.zh-CN.md`, `cli/README.md`) deleted. `gitbook/` docs excluded from scrub (upstream user docs, merge-conflict surface). |
 | 12 | 🟢 LOW | `Dockerfile` and `docker-compose.yml` referenced upstream `decolua/9router` image. | **Fixed in source** — image refs updated to `ghcr.io/mihado/9router:hardened`. |
+| 13 | 🟠 HIGH | Upstream's new `pxpipe` subsystem (`0.5.20`→`0.5.30`) `npm install`s and dynamically `import()`s an unpinned third-party package (`pxpipe-proxy@latest`, no checksum/signature check) in-process on admin request; `headroom`'s new `extras`/`restart` routes similarly spawn `pip install`/kill-respawn. None of these spawn-capable routes were in `dashboardGuard.js`'s `LOCAL_ONLY_PATHS`, unlike every sibling route in that category. (`src/lib/pxpipe/install.js:92`, `src/app/api/pxpipe/{install,start,restart,logs}/route.js`, `src/app/api/headroom/{extras,restart}/route.js`) | **Fixed in source** — added `/api/pxpipe/{install,start,restart,logs}` and `/api/headroom/{extras,restart}` to `LOCAL_ONLY_PATHS` (loopback + CLI token required). The unpinned-install/in-process-exec pattern itself is **accepted** (same disposition as the MITM subsystem: opt-in, `pxpipeEnabled` default-off, now local-only-gated) rather than removed outright — see "Accepted residual risks". |
+| 14 | 🟠 HIGH | Search-provider `baseUrl` override (`open-sse/handlers/search/callers.js` `resolveBaseUrl`) let any authenticated caller point server-side search requests at an arbitrary address (e.g. cloud metadata IPs) via `provider_options.baseUrl`, across all 9 search providers including the new SearXNG one — with **no** SSRF guard at all, unlike Finding #5's weak-but-present guard. Pre-existing since the search subsystem's original introduction, not new to this delta, but newly surfaced while reviewing the SearXNG addition. | **Fixed in source** — wired the existing `assertPublicUrl` guard into the caller-suppliable override; the operator-configured default (may legitimately be a private self-hosted address) is left unchecked. |
 
 ## Changes applied in this fork
 
@@ -183,6 +189,16 @@ for the tactical rationale and deferred follow-ups.
 
 ## Accepted residual risks
 
+- **pxpipe installs an unpinned third-party npm package and runs it in-process** —
+  `src/lib/pxpipe/install.js` runs `npm install pxpipe-proxy@latest --no-audit` (no version pin, no
+  checksum/signature verification) and `src/lib/pxpipe/loader.js` dynamically `import()`s its
+  `dist/core/library.js` in-process, not sandboxed. Accepted with the same disposition as the MITM
+  subsystem: `pxpipeEnabled` defaults off, the feature is admin opt-in, and the spawn-capable routes
+  (`install`/`start`/`restart`/`logs`) are now gated in `LOCAL_ONLY_PATHS` (Finding #13) — same
+  loopback + CLI-token bar as MITM's own admin-only surfaces. Not removed outright (unlike the
+  cloudflared/tailscale tunnel subsystem, Finding #4) because it's on-demand rather than boot-time
+  and provides real functionality; revisit pinning/vendoring `pxpipe-proxy` if the feature sees
+  production use.
 - **SSRF guard remains string-only** — no DNS resolution or IP-pinning yet. Accepted because the
   web-fetch tool is API-key-gated and the deployment is not exposed to untrusted multi-user
   traffic. Revisit before any broader public or shared deployment.
@@ -390,4 +406,110 @@ something worth carrying fork-side maintenance for. `docs/TEST-TRIAGE.md`'s base
 noted but not re-triaged here, consistent with the test gate policy below.
 
 No source changes required beyond the lockfile regeneration and the tests-workspace fix above.
+Updated "Reviewed at" version above.
+
+### 2026-07-11 — rebase onto upstream `0.5.20` → `0.5.30` (`b10b807` → `9845a17`), via `capabilities`
+
+A much bigger jump than the previous two re-checks: 3 upstream releases, 131 files, 7682
+insertions/1015 deletions, including brand-new subsystems (`pxpipe` — local process management;
+new providers `grok-cli`, `antigravity`, `searxng`, `featherless`, `perplexity-agent`; new
+`headroom` routes). Same two-step process as 2026-07-08: `capabilities` rebased onto upstream
+`master` first (clean, zero conflicts, tree-identical to its pre-rebase self — verified via
+`git diff` against the old tip), then `hardened`'s 26 fork-specific commits rebased onto the new
+`capabilities` tip.
+
+**Conflicts (3, all resolved in favor of established fork convention):**
+
+- `README.md` — same recurring conflict as 2026-07-08, grown further: the upstream side of the
+  conflict (lines 135–444) carried a "Codex CLI"/"OpenClaw"/"Cline / Continue / RooCode" CLI-setup
+  block, a full "VPS Deployment" section (`git clone` against `decolua/9router`, `pm2` setup), a
+  "Docker" section (Docker Hub + GHCR pull instructions for `decolua/9router`, `docker run`
+  examples), an Environment Variables table duplicating `.env.example`, an "Available Models"
+  catalog, a "Troubleshooting" FAQ, and a "Tech Stack" bullet list — none of which exist in the
+  fork's README. Resolved the same way as 2026-07-08: discarded that entire upstream-grown block
+  and kept the fork's existing terse replacement (two CLI one-liners + an `## API reference`
+  heading feeding straight into the shared curl example below it), consistent with Findings
+  #11/#12 (don't reintroduce links/instructions pointing at upstream).
+- `src/shared/services/initializeApp.js` (two separate commits touched this file) — upstream
+  restructured it to defer heavy startup work 3s after boot (`STARTUP_DEFER_MS`) and added a
+  `killAllBridges()` (MCP bridge cleanup) call to a new SIGINT/SIGTERM handler; the fork's
+  tunnel-removal commit (`e49fb3e`) still needed to strip tunnel/tailscale/watchdog/network-monitor
+  machinery from that restructured file. Resolved by reproducing the fork's already-established
+  66-line minimal file verbatim (verified all its dependencies — `mitm/manager.js`, `localDb.js`,
+  `quotaAutoPing.js`, `mitmAliasCache.js` — are byte-identical between `b10b807` and `9845a17`, so
+  it still applies cleanly). This **declines** upstream's new deferred-startup and
+  `killAllBridges` signal-handler additions — not because they're unsafe (they look like reasonable
+  perf/cleanup improvements, orthogonal to tunnel removal), but because the fork's existing
+  66-line file already omits signal handlers and DNS-restore-after-autostart entirely (a choice
+  already made at the 0.5.20 sync, not revisited here) and porting new startup-timing/signal-handler
+  behavior mid-security-recheck was out of scope. Worth a deliberate follow-up if MCP bridge
+  processes are observed leaking on shutdown in production.
+- `cli/cli.js` — upstream added `killTunnelByPidFile()`/`killCloudflaredByAppPort()` calls inside a
+  new non-blocking `setImmediate` wrapper in `killAllAppProcesses()` (the underlying functions
+  already existed at `b10b807` too — not new to this delta, just newly wrapped). Since the fork's
+  `e49fb3e` deletes those two functions entirely (`src/lib/tunnel/` is gone), kept the new
+  non-blocking `setImmediate` pattern (a legitimate, tunnel-unrelated perf win) but reduced it to
+  call only `killProxyByPidFile()`. `src/app/api/tunnel/status/route.js` also hit a modify/delete
+  conflict (upstream added a 3s in-memory status-cache to it); took the deletion, consistent with
+  removing the whole `src/app/api/tunnel/` directory.
+
+**Two source fixes required** (both dispatched via user decision before applying, then verified):
+
+- **Finding #13** — `pxpipe`'s `install`/`start`/`restart` (spawns `npm install
+  pxpipe-proxy@latest`, no version pin, dynamic in-process `import()`) and `headroom`'s new
+  `extras`/`restart` (spawns `pip install`/kill-respawn) had zero in-file auth and weren't in
+  `dashboardGuard.js`'s `LOCAL_ONLY_PATHS`, unlike every sibling spawn-capable route. User decided:
+  keep pxpipe (gate + document, same disposition as MITM) rather than remove outright. Fixed by
+  adding all 6 routes to `LOCAL_ONLY_PATHS` (commit `b44308d`).
+- **Finding #14** — the search-provider `baseUrl` override (`open-sse/handlers/search/callers.js`)
+  had no SSRF guard at all (worse than Finding #5's weak string-only guard), across all 9 search
+  providers including the new SearXNG one. Pre-existing, not introduced by this delta, but newly
+  surfaced while reviewing the SearXNG addition. User decided: fix now. Wired `assertPublicUrl`
+  into the caller-suppliable override only, leaving the operator-configured default unchecked
+  (commit `d03a9b1`).
+
+Running the test suite locally auto-generated missing golden snapshots for the new
+`clinepass`/`featherless`/`grok-cli`/`perplexity-agent` providers (`golden-url-header.test.js.snap`)
+— the same "upstream PR didn't run `vitest -u`" gap as `kimchi` before it. Left uncommitted, same
+call as 2026-07-08: this is upstream PR-process debt, not something worth carrying fork-side
+maintenance for.
+
+**Everything else reviewed clean** (via a dedicated review agent covering all 15 checklist items
+plus the new subsystems, spot-verified against the actual source before acting on it):
+
+- New executors (`antigravity.js`, `codex.js`, `grok-cli.js`) — no `child_process`/`spawn`/`exec`
+  in any of them; `grok-cli.js` despite its name is an HTTP fingerprint mimic of the official CLI,
+  not a local shell-out.
+- New OAuth provider (`grok-cli`, device-code flow to `auth.x.ai`) — public client ID, no secrets,
+  same pattern as existing device-code providers (`github`, `kiro`, etc.).
+- `src/dashboardGuard.js` itself has an empty diff across the whole range — the gap was upstream
+  adding new spawn-capable routes without corresponding allowlist entries, not the guard weakening.
+- GA, default password, tunnel dir, stale READMEs, disabled request-log masking: all standing,
+  pre-existing-at-`b10b807` items untouched by this delta, simply awaiting `hardened`'s existing
+  fixes being rebased on top again (same as every previous sync) — confirmed present and correctly
+  fixed after the rebase.
+- `.env.example`/`docker-compose.yml`: only a 2-line commented `SEARXNG_URL` addition, no new
+  `9router.com`/`decolua` refs.
+- `package.json`/`cli/package.json`: version bumps only, zero new/removed dependencies —
+  `pnpm install --frozen-lockfile` was clean with no regeneration needed (unlike the 0.5.18→0.5.20
+  sync, which had real `fs`-dependency drift).
+
+Ran `./scripts/upstream-recheck.sh --diff b10b807`: all 10 automated checks passed. Same two
+informational hits as before, both re-confirmed benign: `skills/9router-web-fetch/SKILL.md`'s
+`9router.com` is a curl example *value*, not a call the app makes; `src/app/layout.js`'s
+`dangerouslySetInnerHTML` is the same static, argument-free font-load class toggle as last time.
+
+**Test verification:** Rebased `capabilities` alone in an isolated worktree first — clean build,
+44/1323 test failures, cross-checked line by line against `known-fails.txt` (15 matches),
+`security-audit.test.js`'s AUDIT-* failures (confirmed present, unchanged, since `b10b807` — not
+new), and live/network-dependent tests (image fetch, MiMo free-tier live check) that fail in this
+sandboxed environment. After the `hardened` rebase: `npm run build` and `docker build .` both
+succeed end-to-end; CI security-gate subset (`dashboard-guard`, `auth-login`,
+`settings-password`, `buildOutputFilter`, `free-provider-toggle`) plus the new
+`searxng-provider-config` test: 70/70 pass; full suite: 1246 pass / 47 fail / 1352 total — the 47
+are the same 44 `capabilities`-inherited failures plus the 3 `xai-oauth-service.test.js` failures
+CLAUDE.md already documents as an expected environmental timeout. **Zero new regressions.**
+`docs/TEST-TRIAGE.md`'s baseline (25 known-fails, 0.5.15-era) remains stale; noted but not
+re-triaged here, consistent with the test gate policy below.
+
 Updated "Reviewed at" version above.
