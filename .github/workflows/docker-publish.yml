@@ -63,7 +63,8 @@ jobs:
             unit/auth-login.test.js \
             unit/settings-password.test.js \
             unit/buildOutputFilter.test.js \
-            unit/free-provider-toggle.test.js
+            unit/free-provider-toggle.test.js \
+            unit/search-ssrf-guard.test.js
 
       - uses: docker/setup-buildx-action@v4
 

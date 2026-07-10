@@ -171,6 +171,9 @@ Runtime hardening (strong `INITIAL_PASSWORD`, `REQUIRE_API_KEY=true`, `AUTH_COOK
 Additional regression tests in `tests/unit/auth-login.test.js` (10 cases) and
 `tests/unit/settings-password.test.js` (7 cases) cover the bootstrap password flow,
 `mustChangePassword` logic, rate limiting, and first-time/already-set password changes.
+`tests/unit/search-ssrf-guard.test.js` (9 cases, added with Finding #14) covers the search-provider
+`baseUrl` guard; `tests/unit/dashboard-guard.test.js` gained 12 cases (added with Finding #13)
+covering the new `LOCAL_ONLY_PATHS` entries for pxpipe/headroom.
 
 ## Public deployment posture
 
@@ -234,7 +237,7 @@ fork does **not** gate CI on the entire suite.
 
 Current policy:
 
-- CI gates on a narrow security-relevant subset (currently 5 files / 68 tests)
+- CI gates on a narrow security-relevant subset (currently 6 files / 89 tests)
 - widen the gate file-by-file only when we adopt and maintain those tests in this fork
 - treat broad-suite failures as upstream debt unless they reveal a real production bug we care
   about in this fork
