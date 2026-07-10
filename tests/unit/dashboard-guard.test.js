@@ -263,6 +263,40 @@ describe("dashboard guard local-only access", () => {
 
     expect(response).toBe(mocks.nextResponse);
   });
+
+  // Finding #13: pxpipe (npm-installs and dynamically executes a third-party
+  // package in-process) and headroom's extras/restart (spawn pip install /
+  // kill-respawn) had no LOCAL_ONLY_PATHS entry, unlike every sibling
+  // spawn-capable route.
+  it.each([
+    "/api/pxpipe/install",
+    "/api/pxpipe/start",
+    "/api/pxpipe/restart",
+    "/api/pxpipe/logs",
+    "/api/headroom/extras",
+    "/api/headroom/restart",
+  ])("rejects %s from a remote host without CLI token", async (pathname) => {
+    const response = await proxy(request(pathname, { host: "router.example.com" }));
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Local only: CLI token required");
+  });
+
+  it.each([
+    "/api/pxpipe/install",
+    "/api/pxpipe/start",
+    "/api/pxpipe/restart",
+    "/api/pxpipe/logs",
+    "/api/headroom/extras",
+    "/api/headroom/restart",
+  ])("allows %s with a valid CLI token", async (pathname) => {
+    const response = await proxy(request(pathname, {
+      host: "router.example.com",
+      "x-9r-cli-token": "cli-token",
+    }));
+
+    expect(response).toBe(mocks.nextResponse);
+  });
 });
 
 describe("dashboard guard helpers", () => {
