@@ -1,6 +1,6 @@
 services:
   9router:
-    image: decolua/9router:latest
+    image: ghcr.io/mihado/9router:hardened
     container_name: 9router
     restart: always
     ports:

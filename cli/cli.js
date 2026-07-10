@@ -4,7 +4,27 @@ const { spawn, exec, execSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const https = require("https");
+const net = require("net");
 const os = require("os");
+
+// Poll until the server accepts TCP connections on port, or timeout — avoids blind fixed waits.
+function waitServerReady(port, { timeoutMs = 15000, intervalMs = 150 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const tryConnect = () => {
+      const socket = net.connect({ host: "127.0.0.1", port }, () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.on("error", () => {
+        socket.destroy();
+        if (Date.now() >= deadline) return resolve(false);
+        setTimeout(tryConnect, intervalMs);
+      });
+    };
+    tryConnect();
+  });
+}
 
 // Native spinner - no external dependency
 function createSpinner(text) {
@@ -171,57 +191,19 @@ function killByPidFile(pidFile) {
   } catch { }
 }
 
-// Kill tunnel processes (cloudflared/tailscale) by their PID files
-function killTunnelByPidFile() {
-  const tunnelDir = path.join(getAppDataDir(), "tunnel");
-  killByPidFile(path.join(tunnelDir, "cloudflared.pid"));
-  killByPidFile(path.join(tunnelDir, "tailscale.pid"));
-}
-
-// Kill cloudflared whose --url targets this app's port (covers stale PID file case)
-function killCloudflaredByAppPort(appPort) {
-  if (!appPort) return [];
-  const portMatchers = [`localhost:${appPort}`, `127.0.0.1:${appPort}`];
-  const pids = [];
-  try {
-    if (process.platform === "win32") {
-      const psCmd = `powershell -NonInteractive -WindowStyle Hidden -Command "Get-WmiObject Win32_Process -Filter 'Name=\\"cloudflared.exe\\"' | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"`;
-      const output = execSync(psCmd, { encoding: "utf8", windowsHide: true, timeout: 5000 });
-      const lines = output.split("\n").slice(1).filter(l => l.trim());
-      lines.forEach(line => {
-        if (portMatchers.some(m => line.includes(m))) {
-          const match = line.match(/^"(\d+)"/);
-          if (match && match[1]) pids.push(match[1]);
-        }
-      });
-    } else {
-      const output = execSync("ps -eo pid,command 2>/dev/null", { encoding: "utf8", timeout: 5000 });
-      output.split("\n").forEach(line => {
-        if (line.includes("cloudflared") && portMatchers.some(m => line.includes(m))) {
-          const parts = line.trim().split(/\s+/);
-          const pid = parts[0];
-          if (pid && !isNaN(pid)) pids.push(pid);
-        }
-      });
-    }
-  } catch { }
-  return pids;
-}
-
 // Kill all 9router processes
 function killAllAppProcesses(appPort) {
   return new Promise((resolve) => {
     try {
-      // Kill MIT first (privileged process, needs special handling)
-      killProxyByPidFile();
-      // Kill cloudflared/tailscale by PID file (precise, only this app's tunnel)
-      killTunnelByPidFile();
+      // Background: MITM runs on a separate port/process — killing it doesn't free the
+      // app port, so don't block the critical path. Server-side MITM manager has
+      // stale-lock recovery and starts deferred (~3s).
+      setImmediate(() => {
+        try { killProxyByPidFile(); } catch {}
+      });
 
       const platform = process.platform;
       let pids = [];
-
-      // Catch stale PID files: kill cloudflared bound to this app's port
-      pids.push(...killCloudflaredByAppPort(appPort));
 
       if (platform === "win32") {
         // Windows: use WMI to get full CommandLine (tasklist /V doesn't include it)
@@ -499,14 +481,11 @@ if (!fs.existsSync(serverPath)) {
   process.exit(1);
 }
 
-// Check for updates FIRST, then start server
-checkForUpdate().then((latestVersion) => {
-  killAllAppProcesses(port).then(() => {
-    return killProcessOnPort(port);
-  }).then(() => {
-    startServer(latestVersion);
-  });
-});
+// Start server immediately; run update check in parallel (not on the critical path).
+const updatePromise = checkForUpdate();
+killAllAppProcesses(port)
+  .then(() => killProcessOnPort(port))
+  .then(() => startServer(updatePromise));
 
 // Show interface selection menu
 async function showInterfaceMenu(latestVersion) {
@@ -556,7 +535,9 @@ async function showInterfaceMenu(latestVersion) {
 const MAX_RESTARTS = 2;
 const RESTART_RESET_MS = 30000; // Reset counter if alive > 30s
 
-function startServer(latestVersion) {
+function startServer(updatePromise) {
+  // Accept either a Promise (parallel update check) or a resolved value.
+  const latestVersionPromise = Promise.resolve(updatePromise);
   const displayHost = getDisplayHost();
   const url = `http://${displayHost}:${port}/dashboard`;
   // Surface real network exposure when bound to all interfaces (default 0.0.0.0).
@@ -610,8 +591,6 @@ function startServer(latestVersion) {
       } catch (e) { }
       // Kill MIT server (privileged process) via PID file
       killProxyByPidFile();
-      // Kill cloudflared/tailscale via PID file (only this app's tunnel)
-      killTunnelByPidFile();
       // Kill server process directly
       if (server.pid) {
         process.kill(server.pid, "SIGKILL");
@@ -677,17 +656,19 @@ function startServer(latestVersion) {
     console.log(`\n🚀 ${pkg.name} v${pkg.version}`);
     console.log(`Server: http://${displayHost}:${port}`);
 
-    setTimeout(() => {
+    waitServerReady(port).then(() => {
       initTrayIcon();
       console.log("\n💡 Router is now running in system tray. Close this terminal if you want.");
       console.log("   Right-click tray icon to open dashboard or quit.\n");
-    }, 2000);
+    });
 
     return;
   }
 
   // Wait for server to be ready, then show interface menu loop + tray
-  setTimeout(async () => {
+  waitServerReady(port).then(async () => {
+    // Resolve parallel update check (already running); don't block server start on it.
+    const latestVersion = await latestVersionPromise;
     // Start tray icon alongside TUI
     initTrayIcon();
 
@@ -772,7 +753,7 @@ function startServer(latestVersion) {
       cleanup();
       process.exit(1);
     }
-  }, 3000);
+  });
 
   function attachServerEvents() {
     server.on("error", (err) => {

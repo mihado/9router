@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [oidcConfigured, setOidcConfigured] = useState(false);
   const [oidcLoginLabel, setOidcLoginLabel] = useState("Sign in with OIDC");
   const [mustChange, setMustChange] = useState(false);
+  const [mustChangeHint, setMustChangeHint] = useState("");
   const [newPassword, setNewPassword] = useState("");
 
   // Countdown for rate-limit
@@ -74,6 +75,7 @@ export default function LoginPage() {
         const data = await res.json();
         if (data.mustChangePassword) {
           setMustChange(true);
+          setMustChangeHint(data.mustChangeHint || "Set a new password before continuing.");
           return;
         }
         window.location.assign("/dashboard");
@@ -151,7 +153,7 @@ export default function LoginPage() {
           {mustChange ? (
             <form onSubmit={handleSetNewPassword} className="flex flex-col gap-4">
               <p className="text-sm text-amber-600 dark:text-amber-400 text-center">
-                Set a new password before accessing the dashboard remotely.
+                {mustChangeHint || "Set a new password before continuing."}
               </p>
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium">New password</label>
@@ -210,9 +212,7 @@ export default function LoginPage() {
                     </p>
                   )}
                   {resetHint && (
-                    <p className="text-xs text-text-muted">
-                      Forgot password? Open <code className="bg-sidebar px-1 rounded">9router</code> CLI on the host → <b>Settings</b> → <b>Reset Password to Default</b>.
-                    </p>
+                    <p className="text-xs text-text-muted">{resetHint}</p>
                   )}
                 </div>
 
@@ -226,12 +226,10 @@ export default function LoginPage() {
                   {retryAfter > 0 ? `Wait ${retryAfter}s` : "Login"}
                 </Button>
 
-                <p className="text-xs text-center text-text-muted mt-2">
-                  Default password is <code className="bg-sidebar px-1 rounded">123456</code>
-                </p>
                 {hasPassword === false && (
                   <p className="text-xs text-center text-amber-600 dark:text-amber-400">
-                    Security risk: no password set. You will be asked to set one when logging in remotely.
+                    No stored password. Set INITIAL_PASSWORD in your .env to create a
+                    bootstrap password — you will be prompted to set a permanent password after first login.
                   </p>
                 )}
               </form>

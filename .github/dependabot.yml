@@ -1,2 +1,26 @@
 version: 2
-updates: []
+updates:
+  # App dependencies (pnpm-lock.yaml). Grouped to reduce PR churn.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: hardened
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # CI action versions.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: hardened
+
+  # Keep the digest-pinned base image (Dockerfile) current.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: hardened
