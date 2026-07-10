@@ -30,6 +30,8 @@
  * @property {Record<string,unknown>} [providerSpecificData]
  */
 
+import { assertPublicUrl } from "@/shared/utils/ssrfGuard.js";
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 /**
@@ -64,12 +66,16 @@ export function getProviderSetting(params, key) {
 
 /**
  * Resolve base URL with optional override from providerOptions.baseUrl.
+ * The override is caller-suppliable, so it's SSRF-checked; the configured
+ * default is operator-controlled (may legitimately be a private/self-hosted
+ * address, e.g. a local SearXNG instance) and is not checked.
  * @param {SearchProviderConfig} config
  * @param {SearchRequestParams} params
  * @returns {string}
  */
 export function resolveBaseUrl(config, params) {
   const override = getProviderSetting(params, "baseUrl");
+  if (override) assertPublicUrl(override);
   return (override || config.baseUrl).replace(/\/+$/, "");
 }
 
